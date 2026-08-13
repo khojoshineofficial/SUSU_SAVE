@@ -81,7 +81,8 @@ function createApp() {
   // Maintenance mode blocks writes but leaves reads and auth working.
   app.use('/api', asyncHandler(async (req, res, next) => {
     if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
-    if (req.path.startsWith('/admin') || req.path.startsWith('/auth')) return next();
+    // Admin, auth and scheduled jobs must keep working during maintenance.
+    if (['/admin', '/auth', '/jobs'].some((prefix) => req.path.startsWith(prefix))) return next();
 
     const settings = await getSettings();
     if (settings.maintenanceMode) {

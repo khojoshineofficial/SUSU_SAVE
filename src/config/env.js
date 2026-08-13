@@ -52,7 +52,16 @@ const env = {
   },
 
   adminEmail: process.env.ADMIN_EMAIL || 'admin@sususave.app',
-  enableJobs: process.env.ENABLE_JOBS !== 'false',
+
+  // Vercel/Lambda set these. On a serverless platform there is no long-lived
+  // process, so the in-process cron scheduler is never started — jobs are
+  // triggered over HTTP instead (see src/routes/jobs.routes.js).
+  isServerless: Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME),
+  enableJobs: process.env.ENABLE_JOBS !== 'false'
+    && !process.env.VERCEL && !process.env.AWS_LAMBDA_FUNCTION_NAME,
+  /** Shared secret required to trigger scheduled jobs over HTTP. */
+  cronSecret: process.env.CRON_SECRET || '',
+
   corsOrigins: (process.env.CORS_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean),
 };
 

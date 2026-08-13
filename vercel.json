@@ -1,0 +1,19 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "version": 2,
+  "functions": {
+    "api/index.js": {
+      "maxDuration": 30,
+      "includeFiles": "public/**"
+    }
+  },
+  "rewrites": [
+    { "source": "/((?!assets/|css/|js/).*)", "destination": "/api/index" }
+  ],
+  "crons": [
+    {
+      "path": "/api/jobs/run-daily",
+      "schedule": "0 2 * * *"
+    }
+  ]
+}

@@ -11,6 +11,7 @@ const organizationRoutes = require('./organization.routes');
 const adminRoutes = require('./admin.routes');
 const paymentRoutes = require('./payment.routes');
 const miscRoutes = require('./misc.routes');
+const jobRoutes = require('./jobs.routes');
 
 const router = express.Router();
 
@@ -21,6 +22,8 @@ router.use('/savings', savingsRoutes);
 router.use('/organizations', organizationRoutes);
 router.use('/admin', adminRoutes);
 router.use('/payments', paymentRoutes);
+// Secret-authenticated triggers for scheduled work (used on serverless hosts).
+router.use('/jobs', jobRoutes);
 // Wallet, transactions, withdrawals and the dashboard/notification endpoints.
 router.use('/', walletRoutes);
 router.use('/', miscRoutes);
