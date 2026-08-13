@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#5b21e6">
+  <title>Sign in · SUSU SAVE</title>
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/design-system.css">
+  <link rel="stylesheet" href="/css/auth.css">
+</head>
+<body>
+  <div class="auth">
+    <section class="auth-brand">
+      <a class="auth-logo" href="/" style="color:inherit">
+        <span class="mark">SS</span>
+        <span><span class="name">SUSU SAVE</span><br><span class="tag">Save Together, Grow Together.</span></span>
+      </a>
+
+      <div class="auth-pitch">
+        <h1>Welcome back to your savings circle.</h1>
+        <p>Track your contributions, follow the payout rotation and reach your goals with people you trust.</p>
+
+        <div class="auth-points">
+          <div class="auth-point">
+            <span class="ico">✓</span>
+            <span><span class="t">Every cedi accounted for</span><br><span class="s">A full ledger of every contribution and payout.</span></span>
+          </div>
+          <div class="auth-point">
+            <span class="ico">⏰</span>
+            <span><span class="t">Automatic reminders</span><br><span class="s">Never miss a contribution date again.</span></span>
+          </div>
+          <div class="auth-point">
+            <span class="ico">🔒</span>
+            <span><span class="t">Your money stays yours</span><br><span class="s">Payouts follow the order your group agreed.</span></span>
+          </div>
+        </div>
+      </div>
+
+      <p class="small" style="color:rgba(255,255,255,0.65)">© <span id="year"></span> SUSU SAVE</p>
+    </section>
+
+    <section class="auth-form-wrap">
+      <form class="auth-form" id="form" novalidate>
+        <h2>Sign in</h2>
+        <p class="sub">Enter your details to access your dashboard.</p>
+
+        <div class="auth-error"></div>
+        <div class="auth-success"></div>
+
+        <div class="field">
+          <label for="email">Email or phone</label>
+          <input class="input" id="email" name="email" autocomplete="username" placeholder="ama@example.com" required>
+        </div>
+
+        <div class="field">
+          <label for="password">Password</label>
+          <input class="input" id="password" name="password" type="password" autocomplete="current-password" required>
+        </div>
+
+        <div class="row-between" style="margin-bottom:24px">
+          <label class="checkbox"><input type="checkbox" id="remember" checked><span>Remember me</span></label>
+          <a href="/forgot-password" class="small">Forgot password?</a>
+        </div>
+
+        <button class="btn btn-lg btn-block" type="submit">Sign in</button>
+
+        <p class="auth-alt">Don't have an account? <a href="/register">Create account</a></p>
+      </form>
+    </section>
+  </div>
+
+  <script type="module">
+    import { api, setToken, showError, submitting, nextDestination, redirectIfSignedIn, clearMessages } from '/js/auth.js';
+
+    document.getElementById('year').textContent = new Date().getFullYear();
+    redirectIfSignedIn();
+
+    document.getElementById('form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      clearMessages();
+      const button = event.target.querySelector('button[type="submit"]');
+      const restore = submitting(button, 'Signing in…');
+
+      try {
+        const data = await api.post('/auth/login', {
+          email: document.getElementById('email').value.trim(),
+          password: document.getElementById('password').value,
+        });
+        setToken(data.accessToken);
+        window.location.href = data.user.role === 'super_admin' ? '/admin' : nextDestination();
+      } catch (err) {
+        showError(err.message);
+        restore();
+      }
+    });
+  </script>
+</body>
+</html>

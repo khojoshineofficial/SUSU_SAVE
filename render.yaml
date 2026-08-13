@@ -1,0 +1,49 @@
+# Render blueprint for SUSU SAVE.
+# Create the service from this file, then add the secret values in the Render
+# dashboard — anything marked `sync: false` is deliberately not stored in git.
+services:
+  - type: web
+    name: susu-save
+    runtime: node
+    plan: starter
+    region: frankfurt
+    branch: main
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: CURRENCY
+        value: GHS
+      - key: CURRENCY_SYMBOL
+        value: GH₵
+      - key: DEFAULT_COUNTRY
+        value: Ghana
+      - key: ENABLE_JOBS
+        value: "true"
+      - key: EMAIL_DRIVER
+        value: console
+      - key: PAYMENT_PROVIDER
+        value: mock
+
+      # Generated once by Render and kept stable across deploys.
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+
+      # Set these in the Render dashboard.
+      - key: MONGODB_URI
+        sync: false
+      - key: APP_URL
+        sync: false
+      - key: PAYMENT_PROVIDER_KEY
+        sync: false
+      - key: PAYMENT_PROVIDER_SECRET
+        sync: false
+      - key: PAYMENT_WEBHOOK_SECRET
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false

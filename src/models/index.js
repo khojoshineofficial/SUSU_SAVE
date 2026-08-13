@@ -1,0 +1,23 @@
+'use strict';
+
+module.exports = {
+  constants: require('./constants'),
+  User: require('./user.model'),
+  Organization: require('./organization.model'),
+  SusuGroup: require('./susuGroup.model'),
+  GroupMember: require('./groupMember.model'),
+  Contribution: require('./contribution.model'),
+  Payout: require('./payout.model'),
+  Transaction: require('./transaction.model'),
+  Wallet: require('./wallet.model'),
+  Withdrawal: require('./withdrawal.model'),
+  Payment: require('./payment.model'),
+  SavingsPlan: require('./savingsPlan.model'),
+  Notification: require('./notification.model'),
+  AuditLog: require('./auditLog.model'),
+  Invitation: require('./invitation.model'),
+  Plan: require('./plan.model'),
+  Subscription: require('./subscription.model'),
+  SupportTicket: require('./supportTicket.model'),
+  SystemSetting: require('./systemSetting.model'),
+};

@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+
+# Environment and secrets — never commit these
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+secrets/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Runtime / build artifacts
+dist/
+build/
+coverage/
+.nyc_output/
+tmp/
+*.pid
+
+# Uploads
+public/uploads/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+
+# Test caches
+.mongodb-binaries/
+.cache/

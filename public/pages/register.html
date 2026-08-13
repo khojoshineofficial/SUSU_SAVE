@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#5b21e6">
+  <title>Create your account · SUSU SAVE</title>
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/design-system.css">
+  <link rel="stylesheet" href="/css/auth.css">
+</head>
+<body>
+  <div class="auth">
+    <section class="auth-brand">
+      <a class="auth-logo" href="/" style="color:inherit">
+        <span class="mark">SS</span>
+        <span><span class="name">SUSU SAVE</span><br><span class="tag">Save Together, Grow Together.</span></span>
+      </a>
+
+      <div class="auth-pitch">
+        <h1>Savings made simple. Together.</h1>
+        <p>Build financial discipline, save with your community, and reach your goals with SUSU SAVE.</p>
+
+        <div class="auth-points">
+          <div class="auth-point">
+            <span class="ico">👥</span>
+            <span><span class="t">Group SUSU</span><br><span class="s">Daily or weekly contributions with a fair payout rotation.</span></span>
+          </div>
+          <div class="auth-point">
+            <span class="ico">🎯</span>
+            <span><span class="t">Personal goals</span><br><span class="s">Rent, school fees, emergencies — save at your own pace.</span></span>
+          </div>
+          <div class="auth-point">
+            <span class="ico">🏢</span>
+            <span><span class="t">For organizations</span><br><span class="s">Companies, schools and associations run their own savings.</span></span>
+          </div>
+        </div>
+      </div>
+
+      <p class="small" style="color:rgba(255,255,255,0.65)">© <span id="year"></span> SUSU SAVE</p>
+    </section>
+
+    <section class="auth-form-wrap">
+      <form class="auth-form" id="form" novalidate>
+        <h2>Create your account</h2>
+        <p class="sub">It takes less than a minute.</p>
+
+        <div class="auth-error"></div>
+        <div class="auth-success"></div>
+
+        <div class="field">
+          <label>Account type</label>
+          <div class="radio-cards" style="grid-template-columns:1fr 1fr">
+            <label class="radio-card selected" data-type="personal">
+              <input type="radio" name="accountType" value="personal" checked>
+              <span><span class="strong small">Personal</span><br><span class="tiny muted">Save on your own or with friends</span></span>
+            </label>
+            <label class="radio-card" data-type="organization">
+              <input type="radio" name="accountType" value="organization">
+              <span><span class="strong small">Organization</span><br><span class="tiny muted">Company, school, church, association</span></span>
+            </label>
+          </div>
+        </div>
+
+        <div id="org-fields" class="hidden">
+          <div class="field">
+            <label for="organizationName">Organization name</label>
+            <input class="input" id="organizationName" placeholder="ABC Company Ltd">
+          </div>
+          <div class="field">
+            <label for="organizationType">Organization type</label>
+            <select class="select" id="organizationType">
+              <option value="company">Company</option>
+              <option value="school">School</option>
+              <option value="church">Church</option>
+              <option value="association">Association</option>
+              <option value="cooperative">Cooperative</option>
+              <option value="ngo">NGO</option>
+              <option value="government">Government</option>
+              <option value="community">Community</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="row wrap" style="gap:14px">
+          <div class="field grow">
+            <label for="firstName">First name</label>
+            <input class="input" id="firstName" autocomplete="given-name" required>
+          </div>
+          <div class="field grow">
+            <label for="lastName">Last name</label>
+            <input class="input" id="lastName" autocomplete="family-name" required>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="email">Email address</label>
+          <input class="input" id="email" type="email" autocomplete="email" placeholder="ama@example.com" required>
+        </div>
+
+        <div class="field">
+          <label for="phone">Phone number</label>
+          <input class="input" id="phone" placeholder="0244123456" required>
+          <span class="hint">Ghanaian mobile number — used for mobile money.</span>
+        </div>
+
+        <div class="field">
+          <label for="password">Password</label>
+          <input class="input" id="password" type="password" autocomplete="new-password" required>
+          <span class="hint">At least 8 characters, including letters and numbers.</span>
+        </div>
+
+        <div class="field">
+          <label for="confirmPassword">Confirm password</label>
+          <input class="input" id="confirmPassword" type="password" autocomplete="new-password" required>
+        </div>
+
+        <div class="field">
+          <label for="region">Region / city</label>
+          <input class="input" id="region" placeholder="Greater Accra">
+        </div>
+
+        <div class="card card-body" id="fee-note" style="background:var(--purple-50);border-color:var(--purple-100);margin-bottom:16px">
+          <span class="small muted">Loading registration fee…</span>
+        </div>
+
+        <label class="checkbox" style="margin-bottom:20px">
+          <input type="checkbox" id="terms" required>
+          <span class="small">I agree to the SUSU SAVE Terms of Service and Privacy Policy.</span>
+        </label>
+
+        <button class="btn btn-lg btn-block" type="submit">Create account</button>
+
+        <p class="auth-alt">Already have an account? <a href="/login">Sign in</a></p>
+      </form>
+    </section>
+  </div>
+
+  <script type="module">
+    import { api, setToken, showError, showSuccess, submitting, clearMessages, redirectIfSignedIn } from '/js/auth.js';
+
+    document.getElementById('year').textContent = new Date().getFullYear();
+    redirectIfSignedIn();
+
+    const money = (minor) => `GH₵${(Number(minor || 0) / 100).toLocaleString('en-GH', { minimumFractionDigits: 2 })}`;
+
+    // Fees are read from the platform configuration, never hard-coded here.
+    api.get('/settings/public').then((settings) => {
+      const fee = settings.registrationFeeMinor;
+      document.getElementById('fee-note').innerHTML = fee
+        ? `<div class="small"><span class="strong">Registration fee: ${money(fee)}.</span>
+           After signing up you will be asked to pay this once with mobile money. Your account activates
+           as soon as the payment is confirmed.</div>`
+        : '<div class="small"><span class="strong">Registration is free.</span> You can start saving right away.</div>';
+    }).catch(() => { document.getElementById('fee-note').remove(); });
+
+    document.querySelectorAll('.radio-card').forEach((card) => card.addEventListener('click', () => {
+      document.querySelectorAll('.radio-card').forEach((c) => c.classList.remove('selected'));
+      card.classList.add('selected');
+      document.getElementById('org-fields').classList.toggle('hidden', card.dataset.type !== 'organization');
+    }));
+
+    document.getElementById('form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      clearMessages();
+
+      const password = document.getElementById('password').value;
+      if (password !== document.getElementById('confirmPassword').value) {
+        showError('The two passwords do not match.');
+        return;
+      }
+      if (!document.getElementById('terms').checked) {
+        showError('Please accept the Terms of Service to continue.');
+        return;
+      }
+
+      const accountType = document.querySelector('input[name="accountType"]:checked').value;
+      const button = event.target.querySelector('button[type="submit"]');
+      const restore = submitting(button, 'Creating account…');
+
+      try {
+        const data = await api.post('/auth/register', {
+          accountType,
+          firstName: document.getElementById('firstName').value.trim(),
+          lastName: document.getElementById('lastName').value.trim(),
+          email: document.getElementById('email').value.trim(),
+          phone: document.getElementById('phone').value.trim(),
+          password,
+          region: document.getElementById('region').value.trim(),
+          organizationName: document.getElementById('organizationName')?.value.trim(),
+          organizationType: document.getElementById('organizationType')?.value,
+        });
+
+        setToken(data.accessToken);
+
+        if (data.payment) {
+          showSuccess(`Account created. Your registration fee of ${money(data.payment.amountMinor)} is pending — approve it on your phone.`);
+          setTimeout(() => { window.location.href = '/wallet'; }, 1800);
+        } else {
+          window.location.href = '/dashboard';
+        }
+      } catch (err) {
+        showError(err.details ? Object.values(err.details)[0] : err.message);
+        restore();
+      }
+    });
+  </script>
+</body>
+</html>
