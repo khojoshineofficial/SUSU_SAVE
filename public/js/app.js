@@ -162,7 +162,7 @@ function paintNav(currentPath) {
   if (isSuperAdmin()) {
     nav.insertAdjacentHTML('beforeend', `
       <div class="nav-label">Platform</div>
-      <button class="nav-item" onclick="window.location.href='/admin'">${icon('shield')} <span>Admin Console</span></button>`);
+      <button class="nav-item" data-href="/admin">${icon('shield')} <span>Admin Console</span></button>`);
   }
 }
 
@@ -230,6 +230,14 @@ function wireGlobalHandlers() {
     navigate(target.dataset.nav);
     document.getElementById('sidebar').classList.remove('open');
     document.getElementById('backdrop').classList.remove('open');
+  });
+
+  // Full page navigations (crossing between the app shell and the admin shell).
+  document.addEventListener('click', (e) => {
+    const target = e.target.closest('[data-href]');
+    if (!target) return;
+    e.preventDefault();
+    window.location.href = target.dataset.href;
   });
 
   window.addEventListener('popstate', render);

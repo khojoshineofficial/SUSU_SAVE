@@ -686,7 +686,7 @@ async function boot() {
           ${TABS.map(([key, label, ico], i) => `
             <button class="nav-item ${i === 0 ? 'active' : ''}" data-tab="${key}">${icon(ico)} <span>${label}</span></button>`).join('')}
           <div class="nav-label">Shortcuts</div>
-          <button class="nav-item" onclick="window.location.href='/dashboard'">${icon('home')} <span>User dashboard</span></button>
+          <button class="nav-item" data-href="/dashboard">${icon('home')} <span>User dashboard</span></button>
         </nav>
         <div class="sidebar-promo">
           <h5>Platform owner</h5>
@@ -728,6 +728,13 @@ async function boot() {
     document.getElementById('sidebar').classList.remove('open');
     document.getElementById('backdrop').classList.remove('open');
   }));
+
+  document.addEventListener('click', (e) => {
+    const target = e.target.closest('[data-href]');
+    if (!target) return;
+    e.preventDefault();
+    window.location.href = target.dataset.href;
+  });
 
   document.getElementById('menu-toggle').addEventListener('click', () => {
     document.getElementById('sidebar').classList.toggle('open');

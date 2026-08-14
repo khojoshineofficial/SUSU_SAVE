@@ -344,7 +344,7 @@ export async function renderTransactionDetail(root, { params }) {
         <h1 style="margin-top:8px">${escape(titleCase(t.type))}</h1>
         <p>${escape(t.transactionId)}</p>
       </div>
-      <button class="btn btn-secondary" onclick="window.print()">${icon('download')} Print receipt</button>
+      <button class="btn btn-secondary" data-print>${icon('download')} Print receipt</button>
     </div>
 
     <div class="card" style="max-width:640px">
@@ -370,6 +370,8 @@ export async function renderTransactionDetail(root, { params }) {
         </div>
       </div>
     </div>`;
+
+  root.querySelector('[data-print]')?.addEventListener('click', () => window.print());
 }
 
 /* --------------------------------- payouts --------------------------------- */

@@ -42,7 +42,7 @@
     </section>
 
     <section class="auth-form-wrap">
-      <form class="auth-form" id="form" novalidate>
+      <form class="auth-form" id="form" method="post" action="#" novalidate>
         <h2>Sign in</h2>
         <p class="sub">Enter your details to access your dashboard.</p>
 
@@ -71,30 +71,6 @@
     </section>
   </div>
 
-  <script type="module">
-    import { api, setToken, showError, submitting, nextDestination, redirectIfSignedIn, clearMessages } from '/js/auth.js';
-
-    document.getElementById('year').textContent = new Date().getFullYear();
-    redirectIfSignedIn();
-
-    document.getElementById('form').addEventListener('submit', async (event) => {
-      event.preventDefault();
-      clearMessages();
-      const button = event.target.querySelector('button[type="submit"]');
-      const restore = submitting(button, 'Signing in…');
-
-      try {
-        const data = await api.post('/auth/login', {
-          email: document.getElementById('email').value.trim(),
-          password: document.getElementById('password').value,
-        });
-        setToken(data.accessToken);
-        window.location.href = data.user.role === 'super_admin' ? '/admin' : nextDestination();
-      } catch (err) {
-        showError(err.message);
-        restore();
-      }
-    });
-  </script>
+  <script type="module" src="/js/pages/login.js"></script>
 </body>
 </html>

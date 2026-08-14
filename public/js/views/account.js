@@ -231,7 +231,7 @@ export async function renderSettings(root, { navigate }) {
             <button class="btn btn-secondary btn-block" data-nav="/profile">Profile and security</button>
             <button class="btn btn-secondary btn-block" data-nav="/support">Help and support</button>
             ${isOrgAdmin() ? '<button class="btn btn-secondary btn-block" data-nav="/members">Organization members</button>' : ''}
-            ${isSuperAdmin() ? '<button class="btn btn-block" onclick="window.location.href=\'/admin\'">Open admin console</button>' : ''}
+            ${isSuperAdmin() ? '<button class="btn btn-block" data-href="/admin">Open admin console</button>' : ''}
           </div>
         </div>
 
