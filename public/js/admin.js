@@ -6,6 +6,7 @@ import {
   icon, emptyState, errorState, skeletonLines, skeletonCards, toastSuccess, toastError,
   modal, confirmDialog, buttonLoading, avatar,
 } from './core/ui.js';
+import { initTheme, mountThemeToggle, mountBackToTop, mountCredit } from './core/theme.js';
 
 let currentUser = null;
 
@@ -661,6 +662,7 @@ const TAB_VIEWS = {
 };
 
 async function boot() {
+  initTheme();
   const user = await bootstrapSession();
   if (!user) { window.location.href = '/login?next=/admin'; return; }
   if (user.role !== 'super_admin') {
@@ -703,6 +705,7 @@ async function boot() {
             <p>Platform administration</p>
           </div>
           <div class="topbar-actions">
+            <span id="theme-slot"></span>
             <div class="user-chip">
               ${avatar(user.firstName, user.lastName, user.avatarUrl, 'avatar-sm')}
               <span><span class="name">${escape(user.firstName)} ${escape(user.lastName)}</span>
@@ -712,8 +715,13 @@ async function boot() {
           </div>
         </header>
         <main class="content" id="view"></main>
+        <footer id="app-credit"></footer>
       </div>
     </div>`;
+
+  mountThemeToggle('#theme-slot');
+  mountBackToTop();
+  mountCredit('#app-credit');
 
   const view = document.getElementById('view');
   const showTab = (key) => {

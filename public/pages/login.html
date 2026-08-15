@@ -24,15 +24,15 @@
 
         <div class="auth-points">
           <div class="auth-point">
-            <span class="ico">✓</span>
+            <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="24" height="24" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg></span>
             <span><span class="t">Every cedi accounted for</span><br><span class="s">A full ledger of every contribution and payout.</span></span>
           </div>
           <div class="auth-point">
-            <span class="ico">⏰</span>
+            <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="24" height="24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></span>
             <span><span class="t">Automatic reminders</span><br><span class="s">Never miss a contribution date again.</span></span>
           </div>
           <div class="auth-point">
-            <span class="ico">🔒</span>
+            <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="24" height="24" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
             <span><span class="t">Your money stays yours</span><br><span class="s">Payouts follow the order your group agreed.</span></span>
           </div>
         </div>
@@ -42,6 +42,7 @@
     </section>
 
     <section class="auth-form-wrap">
+      <div id="theme-slot" style="position:absolute;top:20px;right:20px"></div>
       <form class="auth-form" id="form" method="post" action="#" novalidate>
         <h2>Sign in</h2>
         <p class="sub">Enter your details to access your dashboard.</p>
@@ -67,6 +68,10 @@
         <button class="btn btn-lg btn-block" type="submit">Sign in</button>
 
         <p class="auth-alt">Don't have an account? <a href="/register">Create account</a></p>
+        <div class="credit" style="padding-top:28px">
+          Developed by <span class="dev">Kenneth Nartey</span> —
+          <a href="tel:+233555563413">0555563413</a> / <a href="tel:+233203208934">0203208934</a>
+        </div>
       </form>
     </section>
   </div>

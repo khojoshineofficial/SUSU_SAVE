@@ -94,7 +94,7 @@
   gap: var(--sp-4);
   min-height: var(--header-h);
   padding: var(--sp-4) var(--sp-8);
-  background: rgba(248, 249, 252, 0.88);
+  background: var(--surface-blur);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--border);
 }

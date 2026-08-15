@@ -1,3 +1,9 @@
+import { initTheme, mountThemeToggle, mountBackToTop } from '../core/theme.js';
+
+initTheme();
+mountThemeToggle('#theme-slot');
+mountBackToTop();
+
 /** Page script for landing. Kept in its own file because the app's
  *  Content-Security-Policy allows scripts from 'self' only —
  *  an inline <script> is blocked by the browser and never runs. */

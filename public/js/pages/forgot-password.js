@@ -2,7 +2,11 @@
  *  Content-Security-Policy allows scripts from 'self' only —
  *  an inline <script> is blocked by the browser and never runs. */
 
+import { initTheme, mountThemeToggle } from '../core/theme.js';
 import { api, showError, showSuccess, submitting, clearMessages } from '/js/auth.js';
+initTheme();
+mountThemeToggle('#theme-slot');
+
 document.getElementById('year').textContent = new Date().getFullYear();
 
 document.getElementById('form').addEventListener('submit', async (event) => {
