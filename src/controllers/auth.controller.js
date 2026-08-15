@@ -119,8 +119,10 @@ const login = asyncHandler(async (req, res) => {
   const { email: emailAddress, password } = req.body;
   const identifier = String(emailAddress).toLowerCase().trim();
 
-  const user = await User.findOne({ $or: [{ email: identifier }, { phone: identifier }] })
-    .select('+passwordHash +failedLoginAttempts +lockedUntil');
+  // Staff sign in with a username; members with their email or phone.
+  const user = await User.findOne({
+    $or: [{ email: identifier }, { phone: identifier }, { username: identifier }],
+  }).select('+passwordHash +failedLoginAttempts +lockedUntil');
 
   // One generic message for both branches so the endpoint cannot enumerate accounts.
   const invalid = ApiError.unauthorized('Invalid email or password', 'INVALID_CREDENTIALS');

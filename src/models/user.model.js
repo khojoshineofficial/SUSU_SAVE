@@ -12,6 +12,12 @@ const userSchema = new mongoose.Schema(
     firstName: { type: String, required: true, trim: true },
     lastName: { type: String, required: true, trim: true },
     email: { type: String, required: true, lowercase: true, trim: true, unique: true, index: true },
+    /**
+     * Optional sign-in handle. Staff accounts are provisioned with one so they
+     * never sign in with a guessable address; ordinary members may set one too.
+     * Sparse-unique: absent on most accounts, unique where present.
+     */
+    username: { type: String, lowercase: true, trim: true, default: undefined },
     phone: { type: String, trim: true, index: true },
     passwordHash: { type: String, required: true, select: false },
 
@@ -67,7 +73,21 @@ userSchema.set('toJSON', {
   },
 });
 
+userSchema.index(
+  { username: 1 },
+  { unique: true, partialFilterExpression: { username: { $type: 'string' } } },
+);
+
 userSchema.statics.hashPassword = (plain) => bcrypt.hash(plain, 12);
+
+/** Usernames are compared lowercase and may only contain safe characters. */
+userSchema.statics.normaliseUsername = (value) => {
+  const text = String(value || '').trim().toLowerCase();
+  if (!/^[a-z0-9._-]{4,32}$/.test(text)) {
+    throw new Error('Username must be 4-32 characters, using letters, numbers, dot, underscore or hyphen');
+  }
+  return text;
+};
 
 userSchema.methods.verifyPassword = function verifyPassword(plain) {
   return bcrypt.compare(plain, this.passwordHash);

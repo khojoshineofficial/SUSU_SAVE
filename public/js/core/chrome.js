@@ -68,3 +68,55 @@ export function mountCredit(container) {
   if (!host || host.querySelector('.credit')) return;
   host.insertAdjacentHTML('beforeend', CREDIT_HTML);
 }
+
+/* ------------------------------ maintenance ------------------------------ */
+
+/**
+ * A banner shown on every page while the platform is in maintenance mode.
+ *
+ * The flag lives in the platform settings and is exposed by the public
+ * settings endpoint, so signed-out visitors on the landing and login pages see
+ * it too — not just people already inside the app. It re-checks periodically so
+ * a session that was open when maintenance began finds out without a reload.
+ */
+export async function mountMaintenanceBanner({ pollMs = 60000 } = {}) {
+  const paint = (settings) => {
+    const existing = document.querySelector('.maintenance-bar');
+    if (!settings?.maintenanceMode) {
+      existing?.remove();
+      document.body.classList.remove('has-maintenance-bar');
+      return;
+    }
+    const message = settings.maintenanceMessage
+      || 'SUSU SAVE is under maintenance. You can still sign in and look around, but transactions are paused.';
+
+    if (existing) {
+      existing.querySelector('.maintenance-text').textContent = message;
+      return;
+    }
+
+    const bar = document.createElement('div');
+    bar.className = 'maintenance-bar';
+    bar.setAttribute('role', 'status');
+    bar.innerHTML = `
+      <svg class="icon icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/>
+        <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+      </svg>
+      <span class="maintenance-text">${message}</span>`;
+    document.body.prepend(bar);
+    document.body.classList.add('has-maintenance-bar');
+  };
+
+  const check = async () => {
+    try {
+      const res = await fetch('/api/settings/public');
+      const body = await res.json();
+      paint(body.data);
+    } catch { /* offline or mid-deploy: leave the banner as it is */ }
+  };
+
+  await check();
+  if (pollMs > 0) setInterval(check, pollMs);
+}

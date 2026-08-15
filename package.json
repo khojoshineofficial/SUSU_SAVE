@@ -1,7 +1,7 @@
 {
   "name": "susu-save",
   "version": "1.0.0",
-  "description": "SUSU SAVE — a multi-tenant digital Susu savings platform. Save Together, Grow Together.",
+  "description": "SUSU SAVE \u2014 a multi-tenant digital Susu savings platform. Save Together, Grow Together.",
   "main": "src/server.js",
   "engines": {
     "node": ">=20"
@@ -10,9 +10,16 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "seed": "node scripts/seed.js",
-    "test": "node --test tests/*.test.js"
+    "test": "node --test tests/*.test.js",
+    "create-admins": "node scripts/create-admins.js"
   },
-  "keywords": ["susu", "savings", "fintech", "ghana", "multi-tenant"],
+  "keywords": [
+    "susu",
+    "savings",
+    "fintech",
+    "ghana",
+    "multi-tenant"
+  ],
   "license": "MIT",
   "dependencies": {
     "bcryptjs": "^2.4.3",

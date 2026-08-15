@@ -1,7 +1,7 @@
 'use strict';
 
 const {
-  User, Organization, SusuGroup, Transaction, Withdrawal, Payout, AuditLog, Plan, constants,
+  User, Organization, SusuGroup, Transaction, Withdrawal, Payout, AuditLog, Payment, Plan, constants,
 } = require('../models');
 const { ACCOUNT_STATUS, ORG_STATUS, ROLES } = constants;
 const reportService = require('../services/report.service');
@@ -253,6 +253,123 @@ const listTransactions = asyncHandler(async (req, res) => {
   return ok(res, { transactions, meta: meta(page, limit, total) });
 });
 
+
+/* ----------------------------- payment analysis ----------------------------- */
+
+/**
+ * The money view an admin works from: what is flowing, through which method,
+ * what is stuck, and who is moving the most. Everything is aggregated in the
+ * database rather than pulled into memory, so it stays fast as the ledger grows.
+ */
+const paymentAnalysis = asyncHandler(async (req, res) => {
+  const to = req.query.to ? new Date(req.query.to) : new Date();
+  const from = req.query.from ? new Date(req.query.from) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const range = { createdAt: { $gte: from, $lte: to } };
+
+  const [byMethod, byStatus, byType, daily, topUsers, pendingWithdrawals, failedPayments, settlement] =
+    await Promise.all([
+      Transaction.aggregate([
+        { $match: { ...range, status: constants.TRANSACTION_STATUS.SUCCESSFUL } },
+        { $group: { _id: '$paymentMethod', totalMinor: { $sum: '$grossAmountMinor' }, count: { $sum: 1 } } },
+        { $sort: { totalMinor: -1 } },
+      ]),
+      Transaction.aggregate([
+        { $match: range },
+        { $group: { _id: '$status', totalMinor: { $sum: '$grossAmountMinor' }, count: { $sum: 1 } } },
+      ]),
+      Transaction.aggregate([
+        { $match: { ...range, status: constants.TRANSACTION_STATUS.SUCCESSFUL } },
+        {
+          $group: {
+            _id: '$type',
+            totalMinor: { $sum: '$grossAmountMinor' },
+            feesMinor: { $sum: '$feeMinor' },
+            count: { $sum: 1 },
+          },
+        },
+        { $sort: { totalMinor: -1 } },
+      ]),
+      Transaction.aggregate([
+        { $match: { ...range, status: constants.TRANSACTION_STATUS.SUCCESSFUL } },
+        {
+          $group: {
+            _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+            totalMinor: { $sum: '$grossAmountMinor' },
+            count: { $sum: 1 },
+          },
+        },
+        { $sort: { _id: 1 } },
+        { $project: { _id: 0, period: '$_id', totalMinor: 1, count: 1 } },
+      ]),
+      Transaction.aggregate([
+        { $match: { ...range, status: constants.TRANSACTION_STATUS.SUCCESSFUL } },
+        {
+          $group: {
+            _id: '$userId',
+            totalMinor: { $sum: '$grossAmountMinor' },
+            feesMinor: { $sum: '$feeMinor' },
+            count: { $sum: 1 },
+          },
+        },
+        { $sort: { totalMinor: -1 } },
+        { $limit: 10 },
+      ]),
+      Withdrawal.countDocuments({ status: constants.WITHDRAWAL_STATUS.PENDING }),
+      Payment.countDocuments({ ...range, status: constants.TRANSACTION_STATUS.FAILED }),
+      // Provider payments that never settled — the ones worth chasing.
+      Payment.aggregate([
+        { $match: { ...range } },
+        { $group: { _id: '$status', count: { $sum: 1 }, totalMinor: { $sum: '$amountMinor' } } },
+      ]),
+    ]);
+
+  const users = await User.find({ _id: { $in: topUsers.map((u) => u._id) } })
+    .select('firstName lastName email')
+    .lean();
+  const nameOf = new Map(users.map((u) => [String(u._id), u]));
+
+  return ok(res, {
+    range: { from, to },
+    byMethod,
+    byStatus,
+    byType,
+    daily,
+    settlement,
+    alerts: { pendingWithdrawals, failedPayments },
+    topUsers: topUsers.map((row) => ({
+      userId: row._id,
+      name: nameOf.get(String(row._id))
+        ? `${nameOf.get(String(row._id)).firstName} ${nameOf.get(String(row._id)).lastName}`
+        : 'Unknown',
+      email: nameOf.get(String(row._id))?.email || null,
+      totalMinor: row.totalMinor,
+      feesMinor: row.feesMinor,
+      count: row.count,
+    })),
+  });
+});
+
+/**
+ * The record of payment decisions: who approved or rejected what, and when.
+ * Read from the immutable audit log, so it cannot be edited after the fact.
+ */
+const paymentRecords = asyncHandler(async (req, res) => {
+  const { page, limit, skip } = paginate(req.query, { defaultLimit: 50 });
+
+  const filter = {
+    action: { $in: ['withdrawal.completed', 'withdrawal.rejected', 'withdrawal.auto_completed', 'payout.completed', 'payment.settled'] },
+  };
+  // `mine=true` narrows it to the decisions this admin made themselves.
+  if (req.query.mine === 'true') filter.actorId = req.user._id;
+
+  const [logs, total] = await Promise.all([
+    AuditLog.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+    AuditLog.countDocuments(filter),
+  ]);
+
+  return ok(res, { records: logs, meta: meta(page, limit, total) });
+});
+
 /* --------------------------------- withdrawals -------------------------------- */
 
 const listWithdrawals = asyncHandler(async (req, res) => {
@@ -422,6 +539,8 @@ const setUserRole = asyncHandler(async (req, res) => {
 
 module.exports = {
   overview,
+  paymentAnalysis,
+  paymentRecords,
   charts,
   listUsers,
   getUser,

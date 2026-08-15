@@ -4,10 +4,10 @@
  */
 
 import { api, bootstrapSession } from './core/api.js';
-import { state, setState, subscribe, loadSettings, loadProfile, isOrgAdmin, isSuperAdmin } from './core/store.js';
+import { state, setState, subscribe, loadSettings, loadProfile, isOrgAdmin, isSuperAdmin, isStaff } from './core/store.js';
 import { icon, avatar, toastError } from './core/ui.js';
 import { greeting, escape } from './core/format.js';
-import { mountBackToTop, mountCredit } from './core/chrome.js';
+import { mountBackToTop, mountCredit, mountMaintenanceBanner } from './core/chrome.js';
 
 import { renderDashboard } from './views/dashboard.js';
 import { renderGroups, renderGroupDetail, renderCreateGroup, renderJoinGroup } from './views/groups.js';
@@ -163,7 +163,7 @@ function paintNav(currentPath) {
       ${icon(item.icon, 'icon icon-sm')}<span>${item.label}</span>
     </button>`).join('');
 
-  if (isSuperAdmin()) {
+  if (isStaff()) {
     nav.insertAdjacentHTML('beforeend', `
       <div class="nav-label">Platform</div>
       <button class="nav-item" data-href="/admin">${icon('shield')} <span>Admin Console</span></button>`);
@@ -341,6 +341,7 @@ async function boot() {
   wireGlobalHandlers();
   mountBackToTop();
   mountCredit('#app-credit');
+  mountMaintenanceBanner();
 
   await Promise.all([
     loadSettings().catch(() => {}),

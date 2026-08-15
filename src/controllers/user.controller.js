@@ -45,6 +45,41 @@ const updateProfile = asyncHandler(async (req, res) => {
   return ok(res, { user: req.user.toJSON() }, 'Profile updated');
 });
 
+/**
+ * Change the sign-in username. Staff are provisioned with one and can rotate it
+ * whenever they like; the current password is required so a hijacked session
+ * cannot quietly rename the account and lock the owner out.
+ */
+const changeUsername = asyncHandler(async (req, res) => {
+  const user = await User.findById(req.user._id).select('+passwordHash');
+
+  const matches = await user.verifyPassword(req.body.currentPassword);
+  if (!matches) throw ApiError.badRequest('Your current password is incorrect', 'WRONG_PASSWORD');
+
+  let username;
+  try {
+    username = User.normaliseUsername(req.body.username);
+  } catch (err) {
+    throw ApiError.badRequest(err.message, 'INVALID_USERNAME');
+  }
+
+  const taken = await User.findOne({ username, _id: { $ne: user._id } });
+  if (taken) throw ApiError.conflict('That username is already taken', 'USERNAME_TAKEN');
+
+  const previous = user.username || null;
+  user.username = username;
+  await user.save();
+
+  await audit.log({
+    req,
+    action: 'user.username_changed',
+    entityType: 'User',
+    entityId: user._id,
+    metadata: { from: previous, to: username },
+  });
+  return ok(res, { user: user.toJSON() }, 'Username updated');
+});
+
 const changePassword = asyncHandler(async (req, res) => {
   const user = await User.findById(req.user._id).select('+passwordHash');
   const matches = await user.verifyPassword(req.body.currentPassword);
@@ -87,4 +122,4 @@ const getById = asyncHandler(async (req, res) => {
   return ok(res, { user: target.toJSON() });
 });
 
-module.exports = { me, updateProfile, changePassword, getById };
+module.exports = { me, updateProfile, changeUsername, changePassword, getById };

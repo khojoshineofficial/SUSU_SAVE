@@ -1,6 +1,7 @@
-import { mountBackToTop } from '../core/chrome.js';
+import { mountBackToTop, mountMaintenanceBanner } from '../core/chrome.js';
 
 mountBackToTop();
+mountMaintenanceBanner();
 
 /** Page script for landing. Kept in its own file because the app's
  *  Content-Security-Policy allows scripts from 'self' only —

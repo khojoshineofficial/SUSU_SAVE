@@ -1,10 +1,17 @@
 'use strict';
 
 const ROLES = {
+  /** Platform owner: everything, including settings and maintenance mode. */
   SUPER_ADMIN: 'super_admin',
+  /** Platform staff: payment analysis, approving withdrawals, audit records. */
+  ADMIN: 'admin',
+  /** Runs one organization (tenant). */
   ORG_ADMIN: 'org_admin',
   USER: 'user',
 };
+
+/** Roles that may reach the platform console at /admin. */
+const STAFF_ROLES = [ROLES.SUPER_ADMIN, ROLES.ADMIN];
 
 const ACCOUNT_STATUS = {
   PENDING_PAYMENT: 'pending_payment',
@@ -167,6 +174,7 @@ const values = (obj) => Object.values(obj);
 
 module.exports = {
   ROLES,
+  STAFF_ROLES,
   ACCOUNT_STATUS,
   ORG_STATUS,
   GROUP_STATUS,

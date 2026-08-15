@@ -1,3 +1,7 @@
+import { mountMaintenanceBanner } from '../core/chrome.js';
+
+mountMaintenanceBanner();
+
 /** Page script for forgot-password. Kept in its own file because the app's
  *  Content-Security-Policy allows scripts from 'self' only —
  *  an inline <script> is blocked by the browser and never runs. */

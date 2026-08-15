@@ -51,10 +51,33 @@ not in the UI.
 ### Roles
 | Role | Sees |
 |---|---|
-| **Super Admin** | The whole platform: users, organizations, groups, ledger, revenue, withdrawals, settings, audit logs |
-| **Organization Admin** | Only their own organization's members, groups and reports |
+| **Super Admin** | Everything, and alone may change what the platform *is*: fees, limits, plans, roles, account and organization status, and maintenance mode |
+| **Admin** (platform staff) | Payment analysis, approving and rejecting withdrawals, the immutable payment record, users and transactions — but no settings, plans or roles |
+| **Organization Admin** | Only their own organization's members, groups, money and reports |
 | **Group Organizer** | Their group's members, contributions and payout schedule |
 | **User** | Their own groups, savings, wallet and transactions |
+
+Both staff accounts are provisioned by a script rather than hard-coded:
+
+```bash
+npm run create-admins            # create both, printing credentials once
+npm run create-admins -- --reset # rotate the username and password of existing accounts
+```
+
+The username carries random entropy so it cannot be guessed from the platform
+name, and the password is 20 characters from `crypto.randomBytes`. Nothing
+stores the plaintext — if the output is lost, run it again with `--reset`.
+Both accounts change their own username and password from the console's
+**My account** tab once signed in; staff may sign in with either their username
+or their email.
+
+### Maintenance mode
+
+The super admin flips it under **Settings → Rules**. While it is on, an orange
+banner appears on every page — landing, login, member app and console alike,
+signed in or not — and every write request outside `/auth`, `/admin` and the
+job runner is refused with `503 MAINTENANCE_MODE`. Reads keep working, so
+people can still sign in and look at their balances.
 
 ---
 

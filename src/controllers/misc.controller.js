@@ -144,6 +144,7 @@ const publicSettings = asyncHandler(async (req, res) => {
     limits: settings.limits,
     support: settings.support,
     maintenanceMode: settings.maintenanceMode,
+    maintenanceMessage: settings.maintenanceMode ? settings.maintenanceMessage : '',
   });
 });
 

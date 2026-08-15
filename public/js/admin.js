@@ -6,23 +6,34 @@ import {
   icon, emptyState, errorState, skeletonLines, skeletonCards, toastSuccess, toastError,
   modal, confirmDialog, buttonLoading, avatar,
 } from './core/ui.js';
-import { mountBackToTop, mountCredit } from './core/chrome.js';
+import { mountBackToTop, mountCredit, mountMaintenanceBanner } from './core/chrome.js';
 
 let currentUser = null;
 
+/**
+ * Tabs marked `owner: true` change what the platform is, and belong to the
+ * super admin alone. The rest are the admin's job: look at the money, act on
+ * payments, and keep the record.
+ */
 const TABS = [
   ['overview', 'Overview', 'dashboard'],
+  ['payments', 'Payments', 'credit-card'],
+  ['withdrawals', 'Approvals', 'arrow-up-right'],
+  ['records', 'Records', 'receipt'],
   ['users', 'Users', 'users'],
-  ['organizations', 'Organizations', 'building'],
-  ['groups', 'Groups', 'piggy-bank'],
   ['transactions', 'Transactions', 'receipt'],
-  ['withdrawals', 'Withdrawals', 'arrow-up-right'],
-  ['payouts', 'Payouts', 'gift'],
-  ['reports', 'Reports', 'pie-chart'],
-  ['plans', 'Plans', 'credit-card'],
+  ['organizations', 'Organizations', 'building', true],
+  ['groups', 'Groups', 'piggy-bank', true],
+  ['payouts', 'Payouts', 'gift', true],
+  ['reports', 'Reports', 'pie-chart', true],
+  ['plans', 'Plans', 'credit-card', true],
   ['audit', 'Audit logs', 'shield'],
-  ['settings', 'Settings', 'settings'],
+  ['settings', 'Settings', 'settings', true],
+  ['account', 'My account', 'user'],
 ];
+
+const isOwner = () => currentUser?.role === 'super_admin';
+const visibleTabs = () => TABS.filter(([, , , ownerOnly]) => !ownerOnly || isOwner());
 
 /* --------------------------------- overview -------------------------------- */
 
@@ -827,10 +838,286 @@ function openPlan(plan, reload) {
   });
 }
 
+
+/* ------------------------------ payment analysis ----------------------------- */
+
+/**
+ * The admin's home view: what money moved, how it moved, what is stuck.
+ * All aggregation happens server-side; this only formats the answer.
+ */
+async function paymentsTab(root) {
+  root.innerHTML = `
+    <div class="page-head" style="margin-bottom:16px">
+      <div><h3>Payment analysis</h3><p class="small muted">How money is flowing through the platform.</p></div>
+      <select class="select" id="range" style="width:auto">
+        <option value="7">Last 7 days</option>
+        <option value="30" selected>Last 30 days</option>
+        <option value="90">Last 90 days</option>
+        <option value="365">Last 12 months</option>
+      </select>
+    </div>
+    <div id="analysis">${skeletonCards(4)}</div>`;
+
+  const load = async () => {
+    const host = root.querySelector('#analysis');
+    host.innerHTML = skeletonCards(4);
+    const days = Number(root.querySelector('#range').value);
+    try {
+      const data = await api.get('/admin/payments/analysis', {
+        from: new Date(Date.now() - days * 86400000).toISOString(),
+      });
+
+      const total = (rows) => rows.reduce((sum, r) => sum + r.totalMinor, 0);
+      const successful = data.byStatus.find((r) => r._id === 'successful') || { totalMinor: 0, count: 0 };
+      const failed = data.byStatus.find((r) => r._id === 'failed') || { totalMinor: 0, count: 0 };
+      const pending = data.byStatus.find((r) => r._id === 'pending') || { totalMinor: 0, count: 0 };
+      const feesCollected = data.byType.reduce((sum, r) => sum + (r.feesMinor || 0), 0);
+
+      host.innerHTML = `
+        <div class="stat-grid">
+          ${stat('green', 'check-circle', 'Settled', money(successful.totalMinor), `${successful.count} transactions`)}
+          ${stat('purple', 'trending-up', 'Fees collected', money(feesCollected), 'Platform earnings in range')}
+          ${stat('orange', 'calendar-clock', 'Pending', money(pending.totalMinor), `${pending.count} awaiting settlement`)}
+          ${stat('blue', 'arrow-up-right', 'Awaiting approval', String(data.alerts.pendingWithdrawals), 'Withdrawal requests')}
+        </div>
+
+        ${data.alerts.pendingWithdrawals || failed.count ? `
+          <div class="card card-body" style="background:var(--orange-50);border-color:var(--orange-100);margin-bottom:24px">
+            <div class="row">${icon('alert-circle')}
+              <div>
+                <div class="strong small">Needs attention</div>
+                <div class="small muted">
+                  ${data.alerts.pendingWithdrawals} withdrawal${data.alerts.pendingWithdrawals === 1 ? '' : 's'} awaiting approval ·
+                  ${data.alerts.failedPayments} failed payment${data.alerts.failedPayments === 1 ? '' : 's'} in this period
+                </div>
+              </div>
+              <button class="btn btn-sm" style="margin-left:auto" data-goto="withdrawals">Review approvals</button>
+            </div>
+          </div>` : ''}
+
+        <div class="dash-grid">
+          <div class="card">
+            <div class="card-head"><h3>Volume over time</h3><span class="badge">${days} days</span></div>
+            <div class="card-body">${sparkline(data.daily)}</div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3>By payment method</h3></div>
+            <div class="card-body col">
+              ${data.byMethod.length ? data.byMethod.map((m) => `
+                <div>
+                  <div class="row-between small" style="margin-bottom:6px">
+                    <span class="strong">${titleCase(m._id || 'unknown')}</span>
+                    <span class="muted">${money(m.totalMinor)} · ${m.count}</span>
+                  </div>
+                  <div class="progress">
+                    <div class="progress-bar" style="width:${total(data.byMethod) ? (m.totalMinor / total(data.byMethod)) * 100 : 0}%"></div>
+                  </div>
+                </div>`).join('')
+    : '<p class="muted small">No settled payments in this period.</p>'}
+            </div>
+          </div>
+        </div>
+
+        <div class="dash-grid">
+          <div class="card">
+            <div class="card-head"><h3>By transaction type</h3></div>
+            ${data.byType.length ? `
+            <div class="table-wrap"><table class="table">
+              <thead><tr><th>Type</th><th>Volume</th><th>Fees</th><th>Count</th></tr></thead>
+              <tbody>${data.byType.map((t) => `
+                <tr>
+                  <td data-label="Type">${titleCase(t._id)}</td>
+                  <td data-label="Volume">${money(t.totalMinor)}</td>
+                  <td data-label="Fees">${money(t.feesMinor)}</td>
+                  <td data-label="Count">${t.count}</td>
+                </tr>`).join('')}</tbody>
+            </table></div>` : '<div class="card-body"><p class="muted small">Nothing yet.</p></div>'}
+          </div>
+
+          <div class="card">
+            <div class="card-head"><h3>Most active users</h3></div>
+            ${data.topUsers.length ? `
+            <div class="table-wrap"><table class="table">
+              <thead><tr><th>User</th><th>Volume</th><th>Fees paid</th><th>Payments</th></tr></thead>
+              <tbody>${data.topUsers.map((u) => `
+                <tr>
+                  <td data-label="User"><div class="strong">${escape(u.name)}</div>
+                    <div class="tiny muted">${escape(u.email || '')}</div></td>
+                  <td data-label="Volume">${money(u.totalMinor)}</td>
+                  <td data-label="Fees paid">${money(u.feesMinor)}</td>
+                  <td data-label="Payments">${u.count}</td>
+                </tr>`).join('')}</tbody>
+            </table></div>` : '<div class="card-body"><p class="muted small">No activity yet.</p></div>'}
+          </div>
+        </div>`;
+
+      host.querySelector('[data-goto="withdrawals"]')?.addEventListener('click', () => {
+        document.querySelector('[data-tab="withdrawals"]').click();
+      });
+    } catch (err) {
+      host.innerHTML = errorState(err.message);
+    }
+  };
+
+  root.querySelector('#range').addEventListener('change', load);
+  load();
+}
+
+/* ---------------------------------- records --------------------------------- */
+
+/**
+ * Who approved what. Read from the append-only audit log, so an admin cannot
+ * quietly edit their own history.
+ */
+async function recordsTab(root) {
+  root.innerHTML = `
+    <div class="card">
+      <div class="card-head">
+        <div><h3>Payment records</h3>
+          <div class="tiny muted">Immutable log of approvals, rejections and settlements</div></div>
+        <label class="checkbox"><input type="checkbox" id="mine"><span class="small">Only my decisions</span></label>
+      </div>
+      <div id="list">${skeletonLines(8)}</div>
+    </div>`;
+
+  const load = async () => {
+    const list = root.querySelector('#list');
+    list.innerHTML = skeletonLines(8);
+    try {
+      const { records } = await api.get('/admin/payments/records', {
+        mine: root.querySelector('#mine').checked ? 'true' : '',
+        limit: 100,
+      });
+      list.innerHTML = records.length ? `
+        <div class="table-wrap"><table class="table">
+          <thead><tr><th>When</th><th>Action</th><th>By</th><th>Reference</th><th>Details</th></tr></thead>
+          <tbody>${records.map((r) => `
+            <tr>
+              <td data-label="When">${dateTime(r.createdAt)}</td>
+              <td data-label="Action"><span class="badge ${r.action.includes('rejected') ? 'badge-danger' : 'badge-success'}">${escape(r.action.replace(/[._]/g, ' '))}</span></td>
+              <td data-label="By">${escape(r.actorLabel)}<div class="tiny muted">${escape(r.actorRole || '')}</div></td>
+              <td data-label="Reference"><span class="small">${escape(String(r.entityId || '—'))}</span></td>
+              <td data-label="Details"><span class="small muted">${escape(summariseRecord(r.metadata))}</span></td>
+            </tr>`).join('')}</tbody>
+        </table></div>`
+        : emptyState({ icon: 'receipt', title: 'No records yet', message: 'Payment decisions are recorded here as they happen.' });
+    } catch (err) {
+      list.innerHTML = errorState(err.message);
+    }
+  };
+
+  root.querySelector('#mine').addEventListener('change', load);
+  load();
+}
+
+function summariseRecord(metadata = {}) {
+  const parts = [];
+  if (metadata.netAmountMinor !== undefined) parts.push(money(metadata.netAmountMinor));
+  if (metadata.amountMinor !== undefined) parts.push(money(metadata.amountMinor));
+  if (metadata.purpose) parts.push(titleCase(metadata.purpose));
+  if (metadata.cycle) parts.push(`cycle ${metadata.cycle}`);
+  if (metadata.note) parts.push(metadata.note);
+  return parts.join(' · ') || '—';
+}
+
+/* --------------------------------- my account -------------------------------- */
+
+/** Staff change their own username and password here — no database edit needed. */
+async function accountTab(root) {
+  const me = currentUser || {};
+  root.innerHTML = `
+    <div class="dash-grid">
+      <div class="card">
+        <div class="card-head"><h3>Sign-in details</h3></div>
+        <div class="card-body">
+          <div class="review-list" style="margin-bottom:20px">
+            <div class="review-row"><span class="k">Name</span><span class="v">${escape(me.firstName || '')} ${escape(me.lastName || '')}</span></div>
+            <div class="review-row"><span class="k">Role</span><span class="v">${titleCase(me.role || '')}</span></div>
+            <div class="review-row"><span class="k">Username</span><span class="v" id="current-username">${escape(me.username || 'not set')}</span></div>
+            <div class="review-row"><span class="k">Email</span><span class="v">${escape(me.email || '')}</span></div>
+          </div>
+
+          <form id="username-form">
+            <h4 style="margin-bottom:12px">Change username</h4>
+            <div class="field"><label for="new-username">New username</label>
+              <input class="input" id="new-username" placeholder="susu.owner.k4p2" minlength="4" maxlength="32">
+              <span class="hint">4–32 characters: letters, numbers, dot, underscore or hyphen.</span></div>
+            <div class="field"><label for="u-password">Current password</label>
+              <input class="input" id="u-password" type="password" autocomplete="current-password"></div>
+            <button class="btn btn-secondary" type="submit">Update username</button>
+          </form>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>Change password</h3></div>
+        <div class="card-body">
+          <form id="password-form">
+            <div class="field"><label for="p-current">Current password</label>
+              <input class="input" id="p-current" type="password" autocomplete="current-password"></div>
+            <div class="field"><label for="p-new">New password</label>
+              <input class="input" id="p-new" type="password" autocomplete="new-password">
+              <span class="hint">At least 8 characters, with letters and numbers.</span></div>
+            <div class="field"><label for="p-confirm">Confirm new password</label>
+              <input class="input" id="p-confirm" type="password" autocomplete="new-password"></div>
+            <button class="btn" type="submit">Update password</button>
+          </form>
+          <p class="tiny muted" style="margin-top:14px">
+            Changing either of these takes effect immediately. Other sessions keep working
+            until their token expires.
+          </p>
+        </div>
+      </div>
+    </div>`;
+
+  root.querySelector('#username-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const restore = buttonLoading(e.target.querySelector('button'));
+    try {
+      const { user } = await api.post('/users/me/username', {
+        username: root.querySelector('#new-username').value.trim(),
+        currentPassword: root.querySelector('#u-password').value,
+      });
+      currentUser = user;
+      root.querySelector('#current-username').textContent = user.username;
+      e.target.reset();
+      toastSuccess(`Username is now ${user.username}`);
+    } catch (err) {
+      toastError(err.message);
+    } finally {
+      restore();
+    }
+  });
+
+  root.querySelector('#password-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (root.querySelector('#p-new').value !== root.querySelector('#p-confirm').value) {
+      toastError('The two passwords do not match');
+      return;
+    }
+    const restore = buttonLoading(e.target.querySelector('button'));
+    try {
+      await api.post('/users/me/password', {
+        currentPassword: root.querySelector('#p-current').value,
+        newPassword: root.querySelector('#p-new').value,
+      });
+      e.target.reset();
+      toastSuccess('Password updated');
+    } catch (err) {
+      toastError(err.message);
+    } finally {
+      restore();
+    }
+  });
+}
+
 /* ----------------------------------- boot ---------------------------------- */
 
 const TAB_VIEWS = {
   overview: overviewTab,
+  payments: paymentsTab,
+  records: recordsTab,
+  account: accountTab,
   users: usersTab,
   organizations: organizationsTab,
   groups: groupsTab,
@@ -846,11 +1133,11 @@ const TAB_VIEWS = {
 async function boot() {
   const user = await bootstrapSession();
   if (!user) { window.location.href = '/login?next=/admin'; return; }
-  if (user.role !== 'super_admin') {
+  if (!['super_admin', 'admin'].includes(user.role)) {
     document.getElementById('app').innerHTML = `
       <div class="empty" style="min-height:100vh;justify-content:center">
         <div class="empty-icon">${icon('shield', 'icon icon-lg')}</div>
-        <h4>Admin access required</h4>
+        <h4>Staff access required</h4>
         <p>This console is for platform administrators only.</p>
         <a class="btn" href="/dashboard">Back to my dashboard</a>
       </div>`;
@@ -866,14 +1153,16 @@ async function boot() {
           <div><div class="brand-name">SUSU SAVE</div><div class="brand-tag">Admin Console</div></div>
         </div>
         <nav class="nav" id="nav">
-          ${TABS.map(([key, label, ico], i) => `
+          ${visibleTabs().map(([key, label, ico], i) => `
             <button class="nav-item ${i === 0 ? 'active' : ''}" data-tab="${key}">${icon(ico)} <span>${label}</span></button>`).join('')}
           <div class="nav-label">Shortcuts</div>
           <button class="nav-item" data-href="/dashboard">${icon('home')} <span>User dashboard</span></button>
         </nav>
         <div class="sidebar-promo">
-          <h5>Platform owner</h5>
-          <p>You are signed in with full platform access. Actions here are written to the audit log.</p>
+          <h5>${isOwner() ? 'Platform owner' : 'Platform admin'}</h5>
+          <p>${isOwner()
+    ? 'Full platform access, including settings and maintenance mode.'
+    : 'Payments, approvals and records. Every action is written to the audit log.'}</p>
         </div>
       </aside>
       <div class="sidebar-backdrop" id="backdrop"></div>
@@ -888,8 +1177,8 @@ async function boot() {
           <div class="topbar-actions">
             <div class="user-chip">
               ${avatar(user.firstName, user.lastName, user.avatarUrl, 'avatar-sm')}
-              <span><span class="name">${escape(user.firstName)} ${escape(user.lastName)}</span>
-              <span class="role">Super Admin</span></span>
+              <span><span class="name">${escape(user.username || `${user.firstName} ${user.lastName}`)}</span>
+              <span class="role">${user.role === 'super_admin' ? 'Super Admin' : 'Admin'}</span></span>
             </div>
             <button class="icon-btn" id="logout" title="Sign out">${icon('log-out')}</button>
           </div>
@@ -901,13 +1190,16 @@ async function boot() {
 
   mountBackToTop();
   mountCredit('#app-credit');
+  mountMaintenanceBanner();
 
   const view = document.getElementById('view');
   const showTab = (key) => {
-    document.querySelectorAll('[data-tab]').forEach((btn) => btn.classList.toggle('active', btn.dataset.tab === key));
-    document.getElementById('tab-title').textContent = TABS.find(([k]) => k === key)[1];
-    window.location.hash = key;
-    TAB_VIEWS[key](view);
+    // Guard against a bookmarked #settings on an account that may not see it.
+    const allowed = visibleTabs().some(([k]) => k === key) ? key : 'overview';
+    document.querySelectorAll('[data-tab]').forEach((btn) => btn.classList.toggle('active', btn.dataset.tab === allowed));
+    document.getElementById('tab-title').textContent = visibleTabs().find(([k]) => k === allowed)[1];
+    window.location.hash = allowed;
+    TAB_VIEWS[allowed](view);
   };
 
   document.querySelectorAll('[data-tab]').forEach((btn) => btn.addEventListener('click', () => {

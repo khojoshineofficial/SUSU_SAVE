@@ -1,7 +1,7 @@
 'use strict';
 
 const { User, SusuGroup, GroupMember, constants } = require('../models');
-const { ROLES, ACCOUNT_STATUS, GROUP_MEMBER_STATUS } = constants;
+const { ROLES, STAFF_ROLES, ACCOUNT_STATUS, GROUP_MEMBER_STATUS } = constants;
 const tokens = require('../services/token.service');
 const ApiError = require('../utils/apiError');
 const { asyncHandler } = require('../utils/http');
@@ -69,12 +69,19 @@ const requireRole = (...roles) => (req, _res, next) => {
 const requireSuperAdmin = requireRole(ROLES.SUPER_ADMIN);
 
 /**
+ * Platform staff: an `admin` reviews payments, approves withdrawals and reads
+ * the audit record. Anything that changes how the platform itself behaves —
+ * fees, limits, plans, roles, maintenance mode — stays with the super admin.
+ */
+const requireStaff = requireRole(...STAFF_ROLES);
+
+/**
  * Tenant isolation. A super admin may cross tenants; everyone else is pinned to
  * their own organizationId regardless of what the URL or body says.
  */
 const requireOrganizationAccess = (paramName = 'orgId') => (req, _res, next) => {
   if (!req.user) return next(ApiError.unauthorized());
-  if (req.user.role === ROLES.SUPER_ADMIN) return next();
+  if (STAFF_ROLES.includes(req.user.role)) return next();
 
   const requested = req.params[paramName] || req.body?.organizationId || req.query?.organizationId;
   if (!requested) return next();
@@ -138,6 +145,7 @@ module.exports = {
   requireActiveAccount,
   requireRole,
   requireSuperAdmin,
+  requireStaff,
   requireOrganizationAccess,
   requireSelfOrAdmin,
   requireGroupMember,

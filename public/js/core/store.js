@@ -38,3 +38,5 @@ export async function loadProfile() {
 
 export const isSuperAdmin = () => state.user?.role === 'super_admin';
 export const isOrgAdmin = () => state.user?.role === 'org_admin';
+/** Platform staff: may open the console at /admin. */
+export const isStaff = () => ['super_admin', 'admin'].includes(state.user?.role);

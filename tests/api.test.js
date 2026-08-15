@@ -262,6 +262,116 @@ dbTest('a replayed webhook does not credit the wallet twice', async () => {
 });
 
 
+
+/* ------------------------------ staff role split ----------------------------- */
+
+dbTest('an admin can analyse payments and approve, but cannot change the platform', async () => {
+  const admin = await makeUser({ role: 'admin' });
+  const token = await tokenFor(admin);
+
+  // Allowed: the money view and the payment record.
+  for (const path of ['/api/admin/overview', '/api/admin/payments/analysis',
+    '/api/admin/payments/records', '/api/admin/withdrawals', '/api/admin/transactions',
+    '/api/admin/users', '/api/admin/audit-logs']) {
+    // eslint-disable-next-line no-await-in-loop
+    const res = await request('GET', path, { token });
+    assert.equal(res.status, 200, `${path} should be open to an admin`);
+  }
+
+  // Refused: anything that changes what the platform is.
+  const settings = await request('GET', '/api/admin/settings', { token });
+  assert.equal(settings.status, 403, 'settings belong to the super admin');
+
+  const maintenance = await request('PATCH', '/api/admin/settings', {
+    token, body: { maintenanceMode: true },
+  });
+  assert.equal(maintenance.status, 403, 'an admin must not be able to trigger maintenance mode');
+
+  const plans = await request('GET', '/api/admin/plans', { token });
+  assert.equal(plans.status, 403);
+
+  const promote = await request('POST', `/api/admin/users/${admin._id}/role`, {
+    token, body: { role: 'super_admin' },
+  });
+  assert.equal(promote.status, 403, 'an admin must not be able to promote themselves');
+});
+
+dbTest('only the super admin can turn maintenance mode on, and it is public', async () => {
+  const owner = await makeUser({ role: 'super_admin' });
+  const token = await tokenFor(owner);
+
+  const before = await request('GET', '/api/settings/public');
+  assert.equal(before.body.data.maintenanceMode, false);
+
+  const res = await request('PATCH', '/api/admin/settings', {
+    token,
+    body: { maintenanceMode: true, maintenanceMessage: 'Upgrading the payout engine.' },
+  });
+  assert.equal(res.status, 200);
+
+  // Every page reads this endpoint, signed in or not, to show the banner.
+  const after = await request('GET', '/api/settings/public');
+  assert.equal(after.body.data.maintenanceMode, true);
+  assert.equal(after.body.data.maintenanceMessage, 'Upgrading the payout engine.');
+
+  // And members cannot transact while it is on.
+  const member = await makeUser({ fundMajor: 500 });
+  const blocked = await request('POST', '/api/withdrawals', {
+    token: await tokenFor(member),
+    body: { amount: 50, accountNumber: '0244123456', provider: 'mtn' },
+  });
+  assert.equal(blocked.status, 503);
+  assert.equal(blocked.body.errorCode, 'MAINTENANCE_MODE');
+});
+
+dbTest('staff sign in with a username and can change it themselves', async () => {
+  const admin = await makeUser({ role: 'admin' });
+  await models.User.updateOne({ _id: admin._id }, { $set: { username: 'susu.admin.4kp2' } });
+
+  // The username works at the login endpoint.
+  const login = await request('POST', '/api/auth/login', {
+    body: { email: 'susu.admin.4kp2', password: 'Password123' },
+  });
+  assert.equal(login.status, 200);
+  const token = login.body.data.accessToken;
+
+  // Changing it needs the current password.
+  const wrong = await request('POST', '/api/users/me/username', {
+    token, body: { username: 'newhandle', currentPassword: 'WrongPassword1' },
+  });
+  assert.equal(wrong.status, 400);
+  assert.equal(wrong.body.errorCode, 'WRONG_PASSWORD');
+
+  const changed = await request('POST', '/api/users/me/username', {
+    token, body: { username: 'Susu.Owner.9XY', currentPassword: 'Password123' },
+  });
+  assert.equal(changed.status, 200);
+  assert.equal(changed.body.data.user.username, 'susu.owner.9xy', 'usernames are stored lowercase');
+
+  // The new handle signs in; the old one no longer resolves.
+  const relogin = await request('POST', '/api/auth/login', {
+    body: { email: 'susu.owner.9xy', password: 'Password123' },
+  });
+  assert.equal(relogin.status, 200);
+  const stale = await request('POST', '/api/auth/login', {
+    body: { email: 'susu.admin.4kp2', password: 'Password123' },
+  });
+  assert.equal(stale.status, 401);
+});
+
+dbTest('a username cannot be taken twice', async () => {
+  const first = await makeUser({ role: 'admin' });
+  const second = await makeUser({ role: 'admin' });
+  await models.User.updateOne({ _id: first._id }, { $set: { username: 'taken.handle' } });
+
+  const res = await request('POST', '/api/users/me/username', {
+    token: await tokenFor(second),
+    body: { username: 'taken.handle', currentPassword: 'Password123' },
+  });
+  assert.equal(res.status, 409);
+  assert.equal(res.body.errorCode, 'USERNAME_TAKEN');
+});
+
 /* --------------------------- organization console --------------------------- */
 
 dbTest('an ordinary user cannot reach the organization console', async () => {
