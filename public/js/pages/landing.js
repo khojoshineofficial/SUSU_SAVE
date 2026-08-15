@@ -1,7 +1,5 @@
-import { initTheme, mountThemeToggle, mountBackToTop } from '../core/theme.js';
+import { mountBackToTop } from '../core/chrome.js';
 
-initTheme();
-mountThemeToggle('#theme-slot');
 mountBackToTop();
 
 /** Page script for landing. Kept in its own file because the app's

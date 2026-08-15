@@ -2,11 +2,7 @@
  *  Content-Security-Policy allows scripts from 'self' only —
  *  an inline <script> is blocked by the browser and never runs. */
 
-import { initTheme, mountThemeToggle } from '../core/theme.js';
 import { api, setToken, showError, showSuccess, submitting, clearMessages, redirectIfSignedIn } from '/js/auth.js';
-
-initTheme();
-mountThemeToggle('#theme-slot', { floating: true });
 
 document.getElementById('year').textContent = new Date().getFullYear();
 redirectIfSignedIn();

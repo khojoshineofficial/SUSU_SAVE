@@ -7,7 +7,7 @@ import { api, bootstrapSession } from './core/api.js';
 import { state, setState, subscribe, loadSettings, loadProfile, isOrgAdmin, isSuperAdmin } from './core/store.js';
 import { icon, avatar, toastError } from './core/ui.js';
 import { greeting, escape } from './core/format.js';
-import { initTheme, mountThemeToggle, mountBackToTop, mountCredit } from './core/theme.js';
+import { mountBackToTop, mountCredit } from './core/chrome.js';
 
 import { renderDashboard } from './views/dashboard.js';
 import { renderGroups, renderGroupDetail, renderCreateGroup, renderJoinGroup } from './views/groups.js';
@@ -116,7 +116,6 @@ function renderShell() {
             <p id="subgreeting">Discipline today, financial freedom tomorrow.</p>
           </div>
           <div class="topbar-actions">
-            <span id="theme-slot"></span>
             <div class="dropdown" id="notif-dropdown">
               <button class="icon-btn" id="notif-btn" aria-label="Notifications">
                 ${icon('bell')}<span class="dot hidden" id="notif-dot"></span>
@@ -330,7 +329,6 @@ function toggleDropdown(hostId, html, extraClass = '') {
 /* ----------------------------------- boot ---------------------------------- */
 
 async function boot() {
-  initTheme();
   const user = await bootstrapSession();
   if (!user) {
     window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
@@ -339,7 +337,6 @@ async function boot() {
 
   renderShell();
   wireGlobalHandlers();
-  mountThemeToggle('#theme-slot');
   mountBackToTop();
   mountCredit('#app-credit');
 
