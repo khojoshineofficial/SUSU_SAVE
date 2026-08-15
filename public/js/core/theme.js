@@ -51,37 +51,63 @@ export function toggleTheme() {
   return next;
 }
 
-const SUN = '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>';
-const MOON = '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>';
+const SUN = '<circle cx="12" cy="12" r="4.5"/><path d="M12 1.8v2.6M12 19.6v2.6M4.2 4.2l1.9 1.9M17.9 17.9l1.9 1.9M1.8 12h2.6M19.6 12h2.6M6.1 17.9l-1.9 1.9M19.8 4.2l-1.9 1.9"/>';
+const MOON = '<path d="M20.5 13.3A8.5 8.5 0 1 1 10.7 3.5a6.6 6.6 0 0 0 9.8 9.8z"/>';
 
 const svg = (paths, cls) => `<svg class="icon ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-  stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
+  stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
 
 /**
- * Creates the toggle button. Both icons are always in the DOM; CSS slides the
- * relevant one into view, which keeps the transition smooth and avoids a
- * re-render on every click.
+ * A sliding day/night switch.
+ *
+ * It is a real `role="switch"`, so screen readers announce its state and the
+ * keyboard treats it like a checkbox. `aria-checked` doubles as the styling
+ * hook, which keeps the visual state and the accessible state from ever
+ * drifting apart.
  */
 export function createThemeToggle() {
   const button = document.createElement('button');
-  button.className = 'theme-toggle';
+  button.className = 'theme-switch';
   button.type = 'button';
-  button.setAttribute('aria-label', 'Switch between light and dark mode');
-  button.title = 'Light / dark mode';
-  button.innerHTML = svg(SUN, 'icon-sun') + svg(MOON, 'icon-moon');
+  button.setAttribute('role', 'switch');
+
+  button.innerHTML = `
+    <span class="label"></span>
+    <span class="track" aria-hidden="true">
+      <span class="thumb">${svg(SUN, 'icon-sun')}${svg(MOON, 'icon-moon')}</span>
+    </span>`;
+
+  const label = button.querySelector('.label');
+
+  const paint = () => {
+    const dark = activeTheme() === 'dark';
+    button.setAttribute('aria-checked', String(dark));
+    button.setAttribute('aria-label', dark ? 'Switch to light mode' : 'Switch to dark mode');
+    button.title = following() ? 'Following your device setting' : `${dark ? 'Dark' : 'Light'} mode`;
+    label.textContent = dark ? 'Dark' : 'Light';
+  };
 
   button.addEventListener('click', () => {
-    const next = toggleTheme();
-    button.setAttribute('aria-label', next === 'dark' ? 'Switch to light mode' : 'Switch to dark mode');
+    toggleTheme();
+    paint();
   });
+
+  // Keep every mounted switch in step when the OS flips and no choice is stored.
+  window.matchMedia?.('(prefers-color-scheme: dark)').addEventListener?.('change', paint);
+
+  paint();
   return button;
 }
 
-/** Appends the toggle to a container, if that container exists on this page. */
-export function mountThemeToggle(selector, { prepend = false } = {}) {
+/** True while the visitor has expressed no preference of their own. */
+const following = () => storedTheme() === null;
+
+/** Appends the switch to a container, if that container exists on this page. */
+export function mountThemeToggle(selector, { prepend = false, floating = false } = {}) {
   const host = typeof selector === 'string' ? document.querySelector(selector) : selector;
   if (!host) return null;
   const button = createThemeToggle();
+  if (floating) host.classList.add('theme-float');
   if (prepend) host.prepend(button);
   else host.appendChild(button);
   return button;

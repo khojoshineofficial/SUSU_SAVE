@@ -6,7 +6,7 @@ import { initTheme, mountThemeToggle } from '../core/theme.js';
 import { api, setToken, showError, submitting, nextDestination, redirectIfSignedIn, clearMessages } from '/js/auth.js';
 
 initTheme();
-mountThemeToggle('#theme-slot');
+mountThemeToggle('#theme-slot', { floating: true });
 
 document.getElementById('year').textContent = new Date().getFullYear();
 redirectIfSignedIn();
