@@ -16,6 +16,7 @@ import { renderWallet, renderTransactions, renderTransactionDetail, renderPayout
 import {
   renderNotifications, renderProfile, renderSettings, renderSupport, renderMembers, renderReports,
 } from './views/account.js';
+import { renderOrganization } from './views/organization.js';
 
 /* ---------------------------------- routes --------------------------------- */
 
@@ -34,6 +35,7 @@ const ROUTES = [
   { path: '/payouts', view: renderPayouts, title: 'Payouts' },
   { path: '/contributions', view: renderTransactions, title: 'Contributions' },
   { path: '/notifications', view: renderNotifications, title: 'Notifications' },
+  { path: '/organization', view: renderOrganization, title: 'Organization' },
   { path: '/members', view: renderMembers, title: 'Members' },
   { path: '/reports', view: renderReports, title: 'Reports' },
   { path: '/settings', view: renderSettings, title: 'Settings' },
@@ -72,7 +74,7 @@ const NAV = [
   { path: '/payouts', label: 'Payouts', icon: 'gift' },
   { section: 'Account' },
   { path: '/notifications', label: 'Notifications', icon: 'bell', badge: 'unread' },
-  { path: '/members', label: 'Members', icon: 'building', requires: 'org' },
+  { path: '/organization', label: 'Organization', icon: 'building', requires: 'org' },
   { path: '/reports', label: 'Reports', icon: 'pie-chart' },
   { path: '/settings', label: 'Settings', icon: 'settings' },
   { path: '/support', label: 'Help & Support', icon: 'help-circle' },

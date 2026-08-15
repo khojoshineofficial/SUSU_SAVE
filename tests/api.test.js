@@ -261,6 +261,99 @@ dbTest('a replayed webhook does not credit the wallet twice', async () => {
   assert.equal(deposits, 1);
 });
 
+
+/* --------------------------- organization console --------------------------- */
+
+dbTest('an ordinary user cannot reach the organization console', async () => {
+  const org = await models.Organization.create({
+    name: 'Console Org', slug: 'console-org', adminId: (await makeUser())._id, status: 'active',
+  });
+  const member = await makeUser({ organizationId: org._id });
+  const token = await tokenFor(member);
+
+  for (const path of ['/api/organizations/current/dashboard',
+    '/api/organizations/current/transactions',
+    '/api/organizations/current/performance']) {
+    // eslint-disable-next-line no-await-in-loop
+    const res = await request('GET', path, { token });
+    assert.equal(res.status, 403, `${path} must be admin-only`);
+  }
+});
+
+dbTest('an org admin sees only their own tenant in the console', async () => {
+  const adminA = await makeUser({ role: 'org_admin' });
+  const adminB = await makeUser({ role: 'org_admin' });
+
+  const orgA = await models.Organization.create({ name: 'Alpha', slug: 'alpha', adminId: adminA._id, status: 'active' });
+  const orgB = await models.Organization.create({ name: 'Beta', slug: 'beta', adminId: adminB._id, status: 'active' });
+  await models.User.updateOne({ _id: adminA._id }, { organizationId: orgA._id });
+  await models.User.updateOne({ _id: adminB._id }, { organizationId: orgB._id });
+
+  // A member and a transaction belonging to Beta only.
+  const betaMember = await makeUser({ organizationId: orgB._id });
+  await require('../src/services/ledger.service').post({
+    userId: betaMember._id,
+    organizationId: orgB._id,
+    type: 'contribution',
+    grossAmountMinor: 50000,
+    paymentMethod: 'wallet',
+    description: 'Beta contribution',
+  });
+
+  const tokenA = await tokenFor(adminA);
+  const dashboard = await request('GET', '/api/organizations/current/dashboard', { token: tokenA });
+  assert.equal(dashboard.status, 200);
+  assert.equal(dashboard.body.data.organization.name, 'Alpha');
+  assert.equal(dashboard.body.data.summary.totalSavedMinor, 0, 'Beta savings must not leak into Alpha');
+
+  const transactions = await request('GET', '/api/organizations/current/transactions', { token: tokenA });
+  assert.equal(transactions.body.data.transactions.length, 0, 'Alpha must see none of Beta\'s ledger');
+
+  // And Beta's own admin does see it.
+  const tokenB = await tokenFor(adminB);
+  const betaView = await request('GET', '/api/organizations/current/transactions', { token: tokenB });
+  assert.equal(betaView.body.data.transactions.length, 1);
+});
+
+dbTest('the org console reports arrears and plan usage', async () => {
+  const admin = await makeUser({ role: 'org_admin' });
+  const org = await models.Organization.create({
+    name: 'Reporting Org', slug: 'reporting-org', adminId: admin._id, status: 'active',
+    limits: { maxMembers: 10, maxGroups: 2 },
+  });
+  await models.User.updateOne({ _id: admin._id }, { organizationId: org._id });
+  const token = await tokenFor(admin);
+
+  const dashboard = await request('GET', '/api/organizations/current/dashboard', { token });
+  assert.equal(dashboard.status, 200);
+  assert.equal(dashboard.body.data.counts.maxMembers, 10);
+  assert.equal(dashboard.body.data.counts.maxGroups, 2);
+
+  const performance = await request('GET', '/api/organizations/current/performance', { token });
+  assert.equal(performance.status, 200);
+  assert.ok(Array.isArray(performance.body.data.groups));
+  assert.ok(Array.isArray(performance.body.data.inArrears));
+});
+
+dbTest('only a super admin can manage subscription plans', async () => {
+  const user = await makeUser();
+  const admin = await makeUser({ role: 'super_admin' });
+
+  const denied = await request('GET', '/api/admin/plans', { token: await tokenFor(user) });
+  assert.equal(denied.status, 403);
+
+  const token = await tokenFor(admin);
+  const created = await request('POST', '/api/admin/plans', {
+    token,
+    body: { code: 'growth', name: 'Growth', monthlyPriceMinor: 25000, maxMembers: 200, maxGroups: 20 },
+  });
+  assert.equal(created.status, 201);
+  assert.equal(created.body.data.plan.code, 'growth');
+
+  const list = await request('GET', '/api/admin/plans', { token });
+  assert.ok(list.body.data.plans.some((p) => p.code === 'growth'));
+});
+
 /* ----------------------------------- fees ------------------------------------- */
 
 dbTest('public settings expose fees without leaking internal configuration', async () => {

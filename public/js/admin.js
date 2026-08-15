@@ -18,6 +18,8 @@ const TABS = [
   ['transactions', 'Transactions', 'receipt'],
   ['withdrawals', 'Withdrawals', 'arrow-up-right'],
   ['payouts', 'Payouts', 'gift'],
+  ['reports', 'Reports', 'pie-chart'],
+  ['plans', 'Plans', 'credit-card'],
   ['audit', 'Audit logs', 'shield'],
   ['settings', 'Settings', 'settings'],
 ];
@@ -647,6 +649,184 @@ async function settingsTab(root) {
   });
 }
 
+
+/* ---------------------------------- reports --------------------------------- */
+
+async function reportsTab(root) {
+  root.innerHTML = `
+    <div class="card">
+      <div class="card-head">
+        <div class="row wrap">
+          <select class="select" id="kind" style="width:auto">
+            <option value="group-performance">Group performance</option>
+            <option value="payout-schedule">Payout schedule</option>
+            <option value="revenue">Revenue</option>
+          </select>
+        </div>
+      </div>
+      <div id="report">${skeletonLines(8)}</div>
+    </div>`;
+
+  const renderers = {
+    'group-performance': (rows) => (rows.length ? table(
+      ['Group', 'Cycle', 'On time', 'Missed', 'Compliance', 'Collected'],
+      rows.map((g) => [
+        escape(g.name),
+        `${g.currentCycle} / ${g.totalCycles}`,
+        g.onTimeContributions,
+        g.missedContributions,
+        g.complianceRate === null ? '—' : `${g.complianceRate}%`,
+        money(g.stats?.totalCollectedMinor || 0),
+      ]),
+    ) : emptyState({ icon: 'pie-chart', title: 'No group data', message: 'Groups appear once members start contributing.' })),
+
+    'payout-schedule': (rows) => (rows.length ? table(
+      ['Group', 'Cycle', 'Recipient', 'Scheduled', 'Expected', 'Status'],
+      rows.slice(0, 100).map((p) => [
+        escape(p.groupId?.name || '—'),
+        p.cycle,
+        escape(p.recipientId ? `${p.recipientId.firstName} ${p.recipientId.lastName}` : '—'),
+        date(p.scheduledDate),
+        money(p.expectedAmountMinor),
+        statusBadge(p.status),
+      ]),
+    ) : emptyState({ icon: 'gift', title: 'No payouts scheduled', message: 'Activate a group to generate a schedule.' })),
+
+    revenue: (rows) => {
+      const r = rows[0] || {};
+      return `
+        <div class="card-body">
+          <div class="review-list">
+            <div class="review-row"><span class="k">Platform revenue</span><span class="v">${money(r.platformRevenueMinor)}</span></div>
+            <div class="review-row"><span class="k">Fees withheld inside transactions</span><span class="v">${money(r.revenueBreakdown?.withheldFeesMinor)}</span></div>
+            <div class="review-row"><span class="k">Charged directly (registration, subscriptions)</span><span class="v">${money(r.revenueBreakdown?.directChargesMinor)}</span></div>
+            <hr class="divider">
+            <div class="review-row"><span class="k">Total saved by members</span><span class="v">${money(r.totalSavedMinor)}</span></div>
+            <div class="review-row"><span class="k">Total paid out</span><span class="v">${money(r.totalPaidOutMinor)}</span></div>
+            <div class="review-row"><span class="k">Active users</span><span class="v">${r.activeUsers} of ${r.totalUsers}</span></div>
+            <div class="review-row"><span class="k">Active groups</span><span class="v">${r.activeGroups} of ${r.totalGroups}</span></div>
+          </div>
+        </div>`;
+    },
+  };
+
+  const load = async () => {
+    const kind = root.querySelector('#kind').value;
+    const host = root.querySelector('#report');
+    host.innerHTML = skeletonLines(8);
+    try {
+      const { rows } = await api.get(`/admin/reports/${kind}`);
+      host.innerHTML = renderers[kind](rows);
+    } catch (err) {
+      host.innerHTML = errorState(err.message);
+    }
+  };
+
+  root.querySelector('#kind').addEventListener('change', load);
+  load();
+}
+
+/** Small helper: rows in, responsive table out. */
+const table = (headers, rows) => `
+  <div class="table-wrap"><table class="table">
+    <thead><tr>${headers.map((h) => `<th>${h}</th>`).join('')}</tr></thead>
+    <tbody>${rows.map((cells) => `<tr>${cells.map((c, i) => `<td data-label="${headers[i]}">${c}</td>`).join('')}</tr>`).join('')}</tbody>
+  </table></div>`;
+
+/* ----------------------------------- plans ---------------------------------- */
+
+async function plansTab(root) {
+  root.innerHTML = `
+    <div class="card">
+      <div class="card-head"><h3>Subscription plans</h3>
+        <button class="btn btn-sm" id="new-plan">${icon('plus', 'icon icon-sm')} New plan</button></div>
+      <div id="list">${skeletonLines(5)}</div>
+    </div>`;
+
+  const load = async () => {
+    try {
+      const { plans } = await api.get('/admin/plans');
+      root.querySelector('#list').innerHTML = plans.length ? `
+        <div class="table-wrap"><table class="table">
+          <thead><tr><th>Plan</th><th>Code</th><th>Monthly price</th><th>Max members</th><th>Max groups</th><th>Status</th><th></th></tr></thead>
+          <tbody>${plans.map((p) => `
+            <tr>
+              <td data-label="Plan"><div class="strong">${escape(p.name)}</div>
+                <div class="tiny muted">${escape(p.description || '')}</div></td>
+              <td data-label="Code"><span class="badge">${escape(p.code)}</span></td>
+              <td data-label="Monthly price">${money(p.monthlyPriceMinor)}</td>
+              <td data-label="Max members">${p.maxMembers}</td>
+              <td data-label="Max groups">${p.maxGroups}</td>
+              <td data-label="Status">${p.isActive ? '<span class="badge badge-success">Active</span>' : '<span class="badge">Hidden</span>'}</td>
+              <td data-label=""><button class="btn btn-secondary btn-sm" data-edit='${escape(JSON.stringify(p))}'>Edit</button></td>
+            </tr>`).join('')}</tbody>
+        </table></div>`
+        : emptyState({ icon: 'credit-card', title: 'No plans yet', message: 'Create the plans organizations can subscribe to.' });
+
+      root.querySelectorAll('[data-edit]').forEach((btn) =>
+        btn.addEventListener('click', () => openPlan(JSON.parse(btn.dataset.edit), load)));
+    } catch (err) {
+      root.querySelector('#list').innerHTML = errorState(err.message);
+    }
+  };
+
+  root.querySelector('#new-plan').addEventListener('click', () => openPlan(null, load));
+  load();
+}
+
+function openPlan(plan, reload) {
+  const value = (key, fallback = '') => escape(plan?.[key] ?? fallback);
+  const dialog = modal({
+    title: plan ? `Edit ${plan.name}` : 'New plan',
+    body: `
+      <div class="row wrap" style="gap:16px">
+        <div class="field grow"><label for="name">Name</label>
+          <input class="input" id="name" value="${value('name')}" placeholder="Professional"></div>
+        <div class="field grow"><label for="code">Code</label>
+          <input class="input" id="code" value="${value('code')}" placeholder="professional" ${plan ? 'readonly' : ''}>
+          <span class="hint">Lowercase identifier, fixed once created.</span></div>
+      </div>
+      <div class="field"><label for="description">Description</label>
+        <input class="input" id="description" value="${value('description')}"></div>
+      <div class="row wrap" style="gap:16px">
+        <div class="field grow"><label for="price">Monthly price</label>
+          <div class="input-group"><span class="prefix">GH₵</span>
+            <input class="input" id="price" type="number" step="0.01" min="0"
+              value="${plan ? (plan.monthlyPriceMinor / 100).toFixed(2) : '0.00'}"></div></div>
+        <div class="field grow"><label for="maxMembers">Max members</label>
+          <input class="input" id="maxMembers" type="number" min="1" value="${value('maxMembers', 25)}"></div>
+        <div class="field grow"><label for="maxGroups">Max groups</label>
+          <input class="input" id="maxGroups" type="number" min="1" value="${value('maxGroups', 3)}"></div>
+      </div>
+      <label class="checkbox"><input type="checkbox" id="isActive" ${plan?.isActive !== false ? 'checked' : ''}>
+        <span>Available to organizations</span></label>
+      <div id="plan-error" class="error"></div>`,
+    footer: '<button class="btn btn-secondary" data-close>Cancel</button><button class="btn" data-submit>Save plan</button>',
+  });
+
+  dialog.root.querySelector('[data-submit]').addEventListener('click', async (e) => {
+    const restore = buttonLoading(e.target);
+    const field = (id) => dialog.root.querySelector(`#${id}`);
+    try {
+      await api.post('/admin/plans', {
+        code: field('code').value.trim().toLowerCase(),
+        name: field('name').value.trim(),
+        description: field('description').value,
+        monthlyPriceMinor: Math.round(Number(field('price').value) * 100),
+        maxMembers: Number(field('maxMembers').value),
+        maxGroups: Number(field('maxGroups').value),
+        isActive: field('isActive').checked,
+      });
+      toastSuccess('Plan saved');
+      dialog.close();
+      reload();
+    } catch (err) {
+      dialog.root.querySelector('#plan-error').textContent = err.message;
+      restore();
+    }
+  });
+}
+
 /* ----------------------------------- boot ---------------------------------- */
 
 const TAB_VIEWS = {
@@ -657,6 +837,8 @@ const TAB_VIEWS = {
   transactions: transactionsTab,
   withdrawals: withdrawalsTab,
   payouts: payoutsTab,
+  reports: reportsTab,
+  plans: plansTab,
   audit: auditTab,
   settings: settingsTab,
 };

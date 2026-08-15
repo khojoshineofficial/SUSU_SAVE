@@ -1,14 +1,16 @@
 'use strict';
 
 const {
-  Organization, User, SusuGroup, Invitation, constants,
+  Organization, User, SusuGroup, GroupMember, Transaction, Invitation, constants,
 } = require('../models');
-const { ROLES, ACCOUNT_STATUS } = constants;
+const { ROLES, ACCOUNT_STATUS, GROUP_MEMBER_STATUS } = constants;
+const dashboardService = require('../services/dashboard.service');
+const reportService = require('../services/report.service');
 const email = require('../services/email.service');
 const audit = require('../services/audit.service');
 const ids = require('../utils/ids');
 const ApiError = require('../utils/apiError');
-const { asyncHandler, ok, created } = require('../utils/http');
+const { asyncHandler, ok, created, paginate, meta } = require('../utils/http');
 
 /** Org admins act only on their own organization; super admins may target any. */
 async function resolveOrganization(req) {
@@ -164,7 +166,127 @@ const suspendMember = asyncHandler(async (req, res) => {
   return ok(res, { member: member.toJSON() }, 'Member status updated');
 });
 
+
+/* --------------------------------- dashboard -------------------------------- */
+
+/**
+ * Everything the organization console's overview needs, in one round trip.
+ * Every query is filtered by organizationId — an admin of one tenant can never
+ * see another's figures.
+ */
+const dashboard = asyncHandler(async (req, res) => {
+  const organization = await resolveOrganization(req);
+  const orgId = organization._id;
+
+  const [data, memberCount, pendingMembers, recentTransactions, upcomingPayouts] = await Promise.all([
+    dashboardService.getOrganizationDashboard(orgId),
+    User.countDocuments({ organizationId: orgId }),
+    User.countDocuments({ organizationId: orgId, status: ACCOUNT_STATUS.PENDING_PAYMENT }),
+    Transaction.find({ organizationId: orgId })
+      .populate('userId', 'firstName lastName')
+      .sort({ createdAt: -1 })
+      .limit(8)
+      .lean(),
+    reportService.payoutSchedule({ organizationId: orgId, from: new Date() }),
+  ]);
+
+  return ok(res, {
+    organization,
+    ...data,
+    counts: {
+      members: memberCount,
+      pendingMembers,
+      // Plan limits, so the console can warn before an invite is refused.
+      maxMembers: organization.limits?.maxMembers ?? null,
+      maxGroups: organization.limits?.maxGroups ?? null,
+    },
+    recentTransactions,
+    upcomingPayouts: upcomingPayouts.slice(0, 6),
+  });
+});
+
+/* ------------------------------- money & reports ----------------------------- */
+
+const listTransactions = asyncHandler(async (req, res) => {
+  const organization = await resolveOrganization(req);
+  const { page, limit, skip } = paginate(req.query, { defaultLimit: 25 });
+
+  const filter = { organizationId: organization._id };
+  if (req.query.type) filter.type = req.query.type;
+  if (req.query.status) filter.status = req.query.status;
+
+  const [transactions, total] = await Promise.all([
+    Transaction.find(filter)
+      .populate('userId', 'firstName lastName email')
+      .populate('groupId', 'name')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+    Transaction.countDocuments(filter),
+  ]);
+
+  if (req.query.format === 'csv') {
+    const csv = reportService.toCsv(transactions.map((t) => ({
+      transactionId: t.transactionId,
+      date: t.createdAt,
+      member: t.userId ? `${t.userId.firstName} ${t.userId.lastName}` : '',
+      group: t.groupId?.name || '',
+      type: t.type,
+      gross: t.grossAmountMinor / 100,
+      fee: t.feeMinor / 100,
+      net: t.netAmountMinor / 100,
+      status: t.status,
+    })));
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="${organization.slug}-transactions.csv"`);
+    return res.send(csv);
+  }
+
+  return ok(res, { transactions, meta: meta(page, limit, total) });
+});
+
+const listPayouts = asyncHandler(async (req, res) => {
+  const organization = await resolveOrganization(req);
+  const payouts = await reportService.payoutSchedule({
+    organizationId: organization._id,
+    from: req.query.from,
+    to: req.query.to,
+  });
+  return ok(res, { payouts });
+});
+
+/** Per-group compliance: who is paying on time and who is falling behind. */
+const performance = asyncHandler(async (req, res) => {
+  const organization = await resolveOrganization(req);
+  const [rows, memberIds] = await Promise.all([
+    reportService.groupPerformance({ organizationId: organization._id }),
+    GroupMember.find({ organizationId: organization._id, status: GROUP_MEMBER_STATUS.ACTIVE })
+      .populate('userId', 'firstName lastName email')
+      .lean(),
+  ]);
+
+  // Members carrying arrears, worst first — the list an admin actually acts on.
+  const inArrears = memberIds
+    .filter((m) => m.outstandingMinor > 0 || m.missedContributions > 0)
+    .sort((a, b) => b.outstandingMinor - a.outstandingMinor)
+    .slice(0, 25)
+    .map((m) => ({
+      name: m.userId ? `${m.userId.firstName} ${m.userId.lastName}` : 'Unknown',
+      email: m.userId?.email || null,
+      outstandingMinor: m.outstandingMinor,
+      missedContributions: m.missedContributions,
+      totalContributedMinor: m.totalContributedMinor,
+    }));
+
+  return ok(res, { groups: rows, inArrears });
+});
+
 module.exports = {
+  dashboard,
+  listTransactions,
+  listPayouts,
+  performance,
   getOrganization,
   updateOrganization,
   listMembers,

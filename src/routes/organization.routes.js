@@ -14,6 +14,10 @@ router.post('/invitations/accept', validate({ token: { required: true, checks: [
 
 const adminOnly = requireRole(ROLES.ORG_ADMIN, ROLES.SUPER_ADMIN);
 
+router.get('/current/dashboard', adminOnly, ctrl.dashboard);
+router.get('/current/transactions', adminOnly, ctrl.listTransactions);
+router.get('/current/payouts', adminOnly, ctrl.listPayouts);
+router.get('/current/performance', adminOnly, ctrl.performance);
 router.get('/current', adminOnly, ctrl.getOrganization);
 router.patch('/current', adminOnly, ctrl.updateOrganization);
 router.get('/current/members', adminOnly, ctrl.listMembers);
