@@ -64,6 +64,11 @@ npm run create-admins            # create both, printing credentials once
 npm run create-admins -- --reset # rotate the username and password of existing accounts
 ```
 
+On a host with no shell (Render's free plan), set `BOOTSTRAP_STAFF=true` in the
+environment and redeploy instead: the same provisioning runs once at boot and
+prints the credentials to the platform's log viewer. Delete the variable
+afterwards. `BOOTSTRAP_STAFF=reset` is the boot-time equivalent of `--reset`.
+
 The username carries random entropy so it cannot be guessed from the platform
 name, and the password is 20 characters from `crypto.randomBytes`. Nothing
 stores the plaintext — if the output is lost, run it again with `--reset`.
@@ -225,6 +230,8 @@ Super Admin console.
 | `PAYMENT_WEBHOOK_SECRET` | ✅ (prod) | Secret used to verify webhook signatures |
 | `EMAIL_DRIVER` | | `console` (default) or `smtp` |
 | `EMAIL_*` | | SMTP settings when using a real mail driver |
+| `ADMIN_EMAIL` / `SUPER_ADMIN_EMAIL` | | Email addresses for the two staff accounts |
+| `BOOTSTRAP_STAFF` | | `true` provisions the staff accounts at boot and logs their credentials once; `reset` rotates them. Remove it afterwards |
 | `ENABLE_JOBS` | | `false` disables cron on this instance |
 | `CORS_ORIGINS` | | Comma-separated allowed origins |
 | `MONGODB_TEST_URI` | | Point the test suite at a real database |
@@ -445,9 +452,10 @@ with a confusing network error.
    # {"status":"ok","database":"connected", …}
    ```
 
-6. **Create the first Super Admin.** Register normally, then promote that user — either from an
-   existing admin (`POST /api/admin/users/:id/role`) or directly in Atlas by setting
-   `role: "super_admin"` on the user document.
+6. **Create the staff accounts.** Add `BOOTSTRAP_STAFF=true` to the environment and redeploy;
+   the credentials for the super admin and the admin are printed once in **Logs**. Copy them,
+   then delete the variable. (With shell access, `npm run create-admins` does the same thing.)
+   Sign in at `/login` with the username or email, and the console is at `/admin`.
 
 7. **Custom domain** — Render → Settings → Custom Domains, add the CNAME your DNS provider needs,
    then update `APP_URL` so emails and checkout links point at the right host.

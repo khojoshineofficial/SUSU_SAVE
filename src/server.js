@@ -12,6 +12,15 @@ async function start() {
   // Materialise the settings document on first boot so every fee lookup works.
   await getSettings({ fresh: true });
 
+  // Hosts without a shell can provision staff here instead: BOOTSTRAP_STAFF=true
+  // prints the credentials to the platform's log viewer exactly once.
+  if (env.bootstrapStaff) {
+    const staff = require('./services/staff.service');
+    const results = await staff.provisionStaff({ reset: env.bootstrapStaffReset });
+    logger.info(staff.formatCredentials(results, { reset: env.bootstrapStaffReset }));
+    logger.warn('BOOTSTRAP_STAFF is set — remove it from the environment now that the credentials are printed.');
+  }
+
   const app = createApp();
   const server = app.listen(env.port, () => {
     logger.info(`SUSU SAVE listening on port ${env.port} (${env.nodeEnv})`);

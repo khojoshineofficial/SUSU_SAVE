@@ -52,6 +52,17 @@ const env = {
   },
 
   adminEmail: process.env.ADMIN_EMAIL || 'admin@sususave.app',
+  superAdminEmail: process.env.SUPER_ADMIN_EMAIL || 'owner@sususave.app',
+
+  /**
+   * One-shot staff provisioning at boot, for hosts with no shell (Render's free
+   * plan). Set BOOTSTRAP_STAFF=true, deploy, read the credentials out of the
+   * log, then remove the variable. `reset` rotates credentials that already
+   * exist — the accounts are otherwise left untouched, so a stray redeploy with
+   * the flag still set cannot lock anyone out.
+   */
+  bootstrapStaff: ['true', 'reset'].includes(String(process.env.BOOTSTRAP_STAFF || '').toLowerCase()),
+  bootstrapStaffReset: String(process.env.BOOTSTRAP_STAFF || '').toLowerCase() === 'reset',
 
   // Vercel/Lambda set these. On a serverless platform there is no long-lived
   // process, so the in-process cron scheduler is never started — jobs are
