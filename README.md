@@ -65,9 +65,16 @@ npm run create-admins -- --reset # rotate the username and password of existing 
 ```
 
 On a host with no shell (Render's free plan), set `BOOTSTRAP_STAFF=true` in the
-environment and redeploy instead: the same provisioning runs once at boot and
-prints the credentials to the platform's log viewer. Delete the variable
-afterwards. `BOOTSTRAP_STAFF=reset` is the boot-time equivalent of `--reset`.
+environment and redeploy instead: the same provisioning runs at boot and prints
+the credentials to the platform's log viewer. Delete the variable afterwards.
+`BOOTSTRAP_STAFF=reset` is the boot-time equivalent of `--reset`.
+
+You can also choose the credentials rather than reading generated ones, by
+setting `SUPER_ADMIN_USERNAME` / `SUPER_ADMIN_PASSWORD` and `ADMIN_USERNAME` /
+`ADMIN_PASSWORD` alongside `BOOTSTRAP_STAFF`. Those are applied on every
+bootstrap run, so editing a password there and redeploying resets it — useful if
+an admin is locked out. Chosen passwords are never echoed to the log. Remove
+them once you have signed in.
 
 The username carries random entropy so it cannot be guessed from the platform
 name, and the password is 20 characters from `crypto.randomBytes`. Nothing
@@ -231,7 +238,9 @@ Super Admin console.
 | `EMAIL_DRIVER` | | `console` (default) or `smtp` |
 | `EMAIL_*` | | SMTP settings when using a real mail driver |
 | `ADMIN_EMAIL` / `SUPER_ADMIN_EMAIL` | | Email addresses for the two staff accounts |
-| `BOOTSTRAP_STAFF` | | `true` provisions the staff accounts at boot and logs their credentials once; `reset` rotates them. Remove it afterwards |
+| `BOOTSTRAP_STAFF` | | `true` provisions the staff accounts at boot and logs their credentials; `reset` rotates them. Remove it afterwards |
+| `SUPER_ADMIN_USERNAME` / `_PASSWORD` | | Choose the super admin's credentials instead of generating them |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | | Choose the admin's credentials instead of generating them |
 | `ENABLE_JOBS` | | `false` disables cron on this instance |
 | `CORS_ORIGINS` | | Comma-separated allowed origins |
 | `MONGODB_TEST_URI` | | Point the test suite at a real database |
@@ -452,10 +461,11 @@ with a confusing network error.
    # {"status":"ok","database":"connected", …}
    ```
 
-6. **Create the staff accounts.** Add `BOOTSTRAP_STAFF=true` to the environment and redeploy;
-   the credentials for the super admin and the admin are printed once in **Logs**. Copy them,
-   then delete the variable. (With shell access, `npm run create-admins` does the same thing.)
-   Sign in at `/login` with the username or email, and the console is at `/admin`.
+6. **Create the staff accounts.** Add `BOOTSTRAP_STAFF=true` to the environment and redeploy.
+   Either add `SUPER_ADMIN_USERNAME`/`SUPER_ADMIN_PASSWORD` and `ADMIN_USERNAME`/`ADMIN_PASSWORD`
+   to pick the credentials yourself, or leave them out and read the generated ones from **Logs**.
+   Delete `BOOTSTRAP_STAFF` afterwards. (With shell access, `npm run create-admins` does the same.)
+   Sign in at `/login` with the username or email; the console is at `/admin`.
 
 7. **Custom domain** — Render → Settings → Custom Domains, add the CNAME your DNS provider needs,
    then update `APP_URL` so emails and checkout links point at the right host.

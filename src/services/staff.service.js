@@ -34,6 +34,9 @@ const generatePassword = () => `${randomFrom(ALPHABET, 16)}${randomFrom(SYMBOLS,
 /** e.g. "susu.owner.7f3k" — recognisable, not guessable. */
 const generateUsername = (prefix) => `${prefix}.${randomFrom('abcdefghijkmnopqrstuvwxyz23456789', 4)}`;
 
+/** The shortest password we will accept from an operator. */
+const MIN_PASSWORD_LENGTH = 10;
+
 const STAFF = [
   {
     key: 'SUPER ADMIN',
@@ -42,6 +45,7 @@ const STAFF = [
     lastName: 'Owner',
     email: process.env.SUPER_ADMIN_EMAIL || 'owner@sususave.app',
     usernamePrefix: 'susu.owner',
+    envPrefix: 'SUPER_ADMIN',
     powers: 'Everything: settings, fees, maintenance mode, plans, roles, organizations.',
   },
   {
@@ -51,9 +55,31 @@ const STAFF = [
     lastName: 'Admin',
     email: process.env.ADMIN_EMAIL || 'admin@sususave.app',
     usernamePrefix: 'susu.admin',
+    envPrefix: 'ADMIN',
     powers: 'Payment analysis, approving and rejecting withdrawals, audit records.',
   },
 ];
+
+/**
+ * Credentials supplied by the operator, e.g. SUPER_ADMIN_USERNAME and
+ * SUPER_ADMIN_PASSWORD. Chosen credentials are authoritative: when they are
+ * present the account is synced to them on every run, so changing the variable
+ * and redeploying is a working password reset. Bad values throw rather than
+ * being silently ignored — an admin who cannot sign in has no other recourse.
+ */
+function readChosen(spec) {
+  const username = process.env[`${spec.envPrefix}_USERNAME`];
+  const password = process.env[`${spec.envPrefix}_PASSWORD`];
+
+  if (password && password.length < MIN_PASSWORD_LENGTH) {
+    throw new Error(`${spec.envPrefix}_PASSWORD must be at least ${MIN_PASSWORD_LENGTH} characters`);
+  }
+  return {
+    // Throws with a readable message if the username is not a legal one.
+    username: username ? User.normaliseUsername(username) : null,
+    password: password || null,
+  };
+}
 
 /**
  * Creates a staff account, or rotates its credentials when `reset` is set.
@@ -61,17 +87,25 @@ const STAFF = [
  */
 async function provisionOne(spec, { reset = false } = {}) {
   let user = await User.findOne({ email: spec.email });
+  const chosen = readChosen(spec);
 
-  if (user && !reset) {
+  // Nothing to do only when the account exists, no credentials were chosen for
+  // it, and this is not a reset.
+  if (user && !reset && !chosen.username && !chosen.password) {
     return { ...spec, username: user.username, password: null, created: false };
   }
 
-  const password = generatePassword();
-  const passwordHash = await User.hashPassword(password);
+  // An existing account keeps its password unless one was chosen or this is a
+  // reset — renaming an admin must not lock them out.
+  const keepPassword = Boolean(user) && !chosen.password && !reset;
+  const password = keepPassword ? null : (chosen.password || generatePassword());
+  const passwordHash = password ? await User.hashPassword(password) : null;
 
   if (user) {
-    user.passwordHash = passwordHash;
-    user.username = generateUsername(spec.usernamePrefix);
+    // Keep the existing username when only the password was chosen.
+    const username = chosen.username || (reset ? generateUsername(spec.usernamePrefix) : user.username);
+    if (passwordHash) user.passwordHash = passwordHash;
+    user.username = username;
     user.role = spec.role;
     user.status = ACCOUNT_STATUS.ACTIVE;
     user.failedLoginAttempts = 0;
@@ -82,7 +116,7 @@ async function provisionOne(spec, { reset = false } = {}) {
       firstName: spec.firstName,
       lastName: spec.lastName,
       email: spec.email,
-      username: generateUsername(spec.usernamePrefix),
+      username: chosen.username || generateUsername(spec.usernamePrefix),
       passwordHash,
       role: spec.role,
       status: ACCOUNT_STATUS.ACTIVE,
@@ -99,7 +133,16 @@ async function provisionOne(spec, { reset = false } = {}) {
     metadata: { role: spec.role },
   });
 
-  return { ...spec, username: user.username, password, created: true };
+  return {
+    ...spec,
+    username: user.username,
+    // A chosen password is never echoed back: the operator already has it, and
+    // it would otherwise end up in the hosting platform's log.
+    password: chosen.password ? null : password,
+    chosenPassword: Boolean(chosen.password),
+    keptPassword: keepPassword,
+    created: true,
+  };
 }
 
 async function provisionStaff({ reset = false } = {}) {
@@ -109,6 +152,12 @@ async function provisionStaff({ reset = false } = {}) {
     results.push(await provisionOne(spec, { reset }));
   }
   return results;
+}
+
+function describePassword(r) {
+  if (r.password) return r.password;
+  if (r.chosenPassword) return `(the one you set in ${r.envPrefix}_PASSWORD)`;
+  return '(unchanged — account already existed)';
 }
 
 /** The credential block, formatted for a terminal or a hosting platform's log. */
@@ -129,7 +178,7 @@ function formatCredentials(results, { reset = false } = {}) {
       '  Sign in at   /login   (username or email both work)',
       `  Username     ${r.username}`,
       `  Email        ${r.email}`,
-      `  Password     ${r.password || '(unchanged — account already existed)'}`,
+      `  Password     ${describePassword(r)}`,
       `  Access       ${r.powers}`,
     );
   });

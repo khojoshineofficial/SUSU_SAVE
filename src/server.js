@@ -16,9 +16,14 @@ async function start() {
   // prints the credentials to the platform's log viewer exactly once.
   if (env.bootstrapStaff) {
     const staff = require('./services/staff.service');
-    const results = await staff.provisionStaff({ reset: env.bootstrapStaffReset });
-    logger.info(staff.formatCredentials(results, { reset: env.bootstrapStaffReset }));
-    logger.warn('BOOTSTRAP_STAFF is set — remove it from the environment now that the credentials are printed.');
+    try {
+      const results = await staff.provisionStaff({ reset: env.bootstrapStaffReset });
+      logger.info(staff.formatCredentials(results, { reset: env.bootstrapStaffReset }));
+      logger.warn('BOOTSTRAP_STAFF is set — remove it from the environment once you have the credentials.');
+    } catch (err) {
+      // A rejected username or password must not take the whole site down.
+      logger.error(`Staff provisioning failed: ${err.message}`);
+    }
   }
 
   const app = createApp();
