@@ -43,6 +43,16 @@ contribution rhythm and a monthly maturity/lock rule before funds can be release
 A dedicated plan type that takes your rent and target date and tracks the monthly amount,
 percentage complete, remaining balance and projected completion date.
 
+### Susu collectors
+A collector who goes door to door gets a public sign-up link — `/join/<code>` — to send over
+WhatsApp or read out as an eight-character code. The customer creates their own account through
+it, lands inside the collector's organization, and can deposit and check their balance from their
+own phone. The collector sees every customer they signed up, with balances, in their console; they
+can close the link to new sign-ups, or issue a fresh one, which kills every link already shared.
+
+A collector never holds their customers' money: each customer's balance is their own wallet, and
+only they can withdraw from it.
+
 ### Multi-tenancy
 Every organization is a separate tenant. A user in Organization A can never read, join or
 transact against anything belonging to Organization B — enforced in middleware on every route,
@@ -338,7 +348,9 @@ Authenticate with `Authorization: Bearer <accessToken>`. The refresh token is an
 `GET/PATCH /api/organizations/current` · `GET /api/organizations/current/members` ·
 `POST /api/organizations/current/members/invite` · `DELETE …/members/:memberId` ·
 `POST …/members/:memberId/suspend` · `GET /api/organizations/current/groups` ·
-`POST /api/organizations/invitations/accept` · `GET /api/my-organization`
+`POST /api/organizations/invitations/accept` · `GET /api/my-organization` ·
+`GET /api/organizations/current/join-link` · `POST /api/organizations/current/join-link/rotate` ·
+`GET /api/collectors/:code` (public)
 
 ### Admin (Super Admin only)
 `/api/admin/overview` · `/charts` · `/users` · `/users/:id` · `/users/:id/status` ·

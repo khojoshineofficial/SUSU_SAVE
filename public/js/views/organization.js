@@ -84,6 +84,8 @@ async function overview(panel, { navigate }) {
   const groupUsage = counts.maxGroups ? Math.round((summary.totalGroups / counts.maxGroups) * 100) : null;
 
   panel.innerHTML = `
+    <div class="card" id="join-link-card" style="margin-bottom:20px">${skeletonLines(2)}</div>
+
     <div class="stat-grid">
       <div class="stat purple"><div class="stat-icon">${icon('users')}</div><div class="stat-label">Members</div>
         <div class="stat-value">${counts.members}</div>
@@ -146,6 +148,107 @@ async function overview(panel, { navigate }) {
   panel.querySelector('[data-go="money"]')?.addEventListener('click', () => {
     document.querySelector('[data-tab="money"]').click();
   });
+
+  mountJoinLink(panel.querySelector('#join-link-card'));
+}
+
+/* -------------------------------- join link -------------------------------- */
+
+/**
+ * The collector's sign-up link. This is how a susu collector onboards the
+ * customers they visit: send the link over WhatsApp, or read the eight-letter
+ * code down the phone. Everyone who signs up through it lands in this
+ * organization, so the collector sees them and nobody else does.
+ */
+async function mountJoinLink(card) {
+  if (!card) return;
+  let link;
+  try {
+    link = await api.get('/organizations/current/join-link');
+  } catch (err) {
+    card.innerHTML = errorState(err.message);
+    return;
+  }
+
+  const render = (data) => {
+    card.innerHTML = `
+      <div class="card-head">
+        <h3>${icon('link')} Your sign-up link</h3>
+        <span class="badge ${data.enabled ? 'badge-success' : 'badge-warning'}">${data.enabled ? 'Open' : 'Closed'}</span>
+      </div>
+      <div class="card-body col">
+        <p class="small muted" style="margin:0">
+          Send this to a customer and they create their own account under you — then they can
+          deposit and check their balance themselves. Nothing to type on their behalf.</p>
+
+        <div class="row wrap" style="gap:10px;align-items:center">
+          <input class="input grow" id="join-url" readonly value="${escape(data.url)}" style="font-family:var(--font-mono,monospace);min-width:240px">
+          <button class="btn btn-sm" data-action="copy">${icon('copy')} Copy</button>
+          <button class="btn btn-ghost btn-sm" data-action="share">${icon('share')} WhatsApp</button>
+        </div>
+
+        <div class="row-between small">
+          <span class="muted">Or read out the code: <span class="strong" style="letter-spacing:.14em">${escape(data.joinCode)}</span></span>
+          <span class="muted">${data.customers} signed up${data.capacity ? ` of ${data.capacity}` : ''}</span>
+        </div>
+
+        <div class="row wrap" style="gap:10px">
+          <button class="btn btn-ghost btn-sm" data-action="toggle">${data.enabled ? 'Close the link' : 'Open the link'}</button>
+          <button class="btn btn-ghost btn-sm" data-action="rotate">Issue a new link</button>
+        </div>
+        <p class="tiny muted" style="margin:0">
+          Closing the link stops new sign-ups without affecting existing customers.
+          Issuing a new one stops every link you have already shared from working.</p>
+      </div>`;
+
+    card.querySelector('[data-action="copy"]').addEventListener('click', async () => {
+      const input = card.querySelector('#join-url');
+      try {
+        await navigator.clipboard.writeText(input.value);
+      } catch {
+        // Clipboard access needs a secure context and permission; selecting the
+        // text still lets the collector copy it by hand.
+        input.select();
+      }
+      toastSuccess('Link copied');
+    });
+
+    card.querySelector('[data-action="share"]').addEventListener('click', () => {
+      const text = `Join my susu on SUSU SAVE and save with me. Create your account here: ${data.url}`;
+      window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+    });
+
+    card.querySelector('[data-action="toggle"]').addEventListener('click', async (event) => {
+      const restore = buttonLoading(event.currentTarget);
+      try {
+        await api.patch('/organizations/current', { settings: { allowPublicJoin: !data.enabled } });
+        toastSuccess(data.enabled ? 'Link closed to new sign-ups' : 'Link is open again');
+        render({ ...data, enabled: !data.enabled });
+      } catch (err) {
+        toastError(err.message);
+        restore();
+      }
+    });
+
+    card.querySelector('[data-action="rotate"]').addEventListener('click', async () => {
+      const confirmed = await confirmDialog({
+        title: 'Issue a new link?',
+        message: 'Every link you have already shared stops working. Customers who already signed up are not affected.',
+        confirmLabel: 'Issue new link',
+        danger: true,
+      });
+      if (!confirmed) return;
+      try {
+        const fresh = await api.post('/organizations/current/join-link/rotate', {});
+        toastSuccess('New link issued');
+        render({ ...data, ...fresh });
+      } catch (err) {
+        toastError(err.message);
+      }
+    });
+  };
+
+  render(link);
 }
 
 const usageBar = (label, used, max, percent) => `
@@ -168,19 +271,21 @@ async function members(panel, { reload }) {
     panel.innerHTML = `
       <div class="card">
         <div class="card-head">
-          <h3>Members (${rows.length})</h3>
+          <h3>Members (${rows.length}) ·
+            <span class="muted" style="font-weight:500">${money(rows.reduce((sum, m) => sum + (m.balanceMinor || 0), 0))} held</span></h3>
           <input class="input" id="member-search" placeholder="Search members" style="width:240px">
         </div>
         <div class="table-wrap">
           <table class="table" id="member-table">
-            <thead><tr><th>Member</th><th>Phone</th><th>Role</th><th>Status</th><th>Joined</th><th>Last seen</th><th></th></tr></thead>
+            <thead><tr><th>Member</th><th>Phone</th><th class="num">Balance</th><th class="num">Total saved</th><th>Status</th><th>Joined</th><th>Last seen</th><th></th></tr></thead>
             <tbody>${rows.map((m) => `
               <tr data-search="${escape(`${m.firstName} ${m.lastName} ${m.email}`.toLowerCase())}">
                 <td data-label="Member"><div class="row">${avatar(m.firstName, m.lastName, m.avatarUrl, 'avatar-sm')}
                   <div><div class="strong">${escape(m.firstName)} ${escape(m.lastName)}</div>
                   <div class="tiny muted">${escape(m.email)}</div></div></div></td>
                 <td data-label="Phone">${escape(m.phone || '—')}</td>
-                <td data-label="Role">${titleCase(m.role)}</td>
+                <td data-label="Balance" class="num strong">${money(m.balanceMinor)}</td>
+                <td data-label="Total saved" class="num muted">${money(m.totalDepositedMinor)}</td>
                 <td data-label="Status">${statusBadge(m.status)}</td>
                 <td data-label="Joined">${date(m.createdAt)}</td>
                 <td data-label="Last seen">${m.lastLoginAt ? date(m.lastLoginAt) : 'Never'}</td>

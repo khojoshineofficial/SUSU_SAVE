@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#5b21e6">
+  <title>Join your susu collector · SUSU SAVE</title>
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/design-system.css">
+  <link rel="stylesheet" href="/css/auth.css">
+</head>
+<body>
+  <div class="auth">
+    <section class="auth-brand">
+      <a class="auth-logo" href="/" style="color:inherit">
+        <span class="mark">SS</span>
+        <span><span class="name">SUSU SAVE</span><br><span class="tag">Save Together, Grow Together.</span></span>
+      </a>
+
+      <div class="auth-pitch">
+        <h1>You have been invited to save.</h1>
+        <p id="collector-pitch">Opening your collector's link…</p>
+
+        <div class="auth-points">
+          <div class="auth-point">
+            <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="24" height="24" aria-hidden="true"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span>
+            <span><span class="t">Deposit any time</span><br><span class="s">Add money with mobile money from your own phone.</span></span>
+          </div>
+          <div class="auth-point">
+            <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="24" height="24" aria-hidden="true"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg></span>
+            <span><span class="t">See your balance</span><br><span class="s">Every deposit and withdrawal, on the record, any time you look.</span></span>
+          </div>
+          <div class="auth-point">
+            <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="24" height="24" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/></svg></span>
+            <span><span class="t">Your money, your account</span><br><span class="s">Only you can withdraw it. Your collector can never move it.</span></span>
+          </div>
+        </div>
+      </div>
+
+      <p class="small" style="color:rgba(255,255,255,0.65)">© <span id="year"></span> SUSU SAVE</p>
+    </section>
+
+    <section class="auth-form-wrap">
+      <form class="auth-form" id="form" method="post" action="#" novalidate>
+        <h2>Create your savings account</h2>
+        <p class="sub" id="sub">It takes less than a minute.</p>
+
+        <div class="auth-error"></div>
+        <div class="auth-success"></div>
+
+        <div class="card card-body" id="collector-card" style="background:var(--purple-50);border-color:var(--purple-100);margin-bottom:18px">
+          <span class="small muted">Checking this link…</span>
+        </div>
+
+        <div id="fields" class="hidden">
+          <div class="row wrap" style="gap:14px">
+            <div class="field grow">
+              <label for="firstName">First name</label>
+              <input class="input" id="firstName" autocomplete="given-name" required>
+            </div>
+            <div class="field grow">
+              <label for="lastName">Last name</label>
+              <input class="input" id="lastName" autocomplete="family-name" required>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="phone">Phone number</label>
+            <input class="input" id="phone" placeholder="0244123456" required>
+            <span class="hint">Ghanaian mobile number — used for mobile money.</span>
+          </div>
+
+          <div class="field">
+            <label for="email">Email address</label>
+            <input class="input" id="email" type="email" autocomplete="email" placeholder="ama@example.com" required>
+          </div>
+
+          <div class="field">
+            <label for="password">Password</label>
+            <input class="input" id="password" type="password" autocomplete="new-password" required>
+            <span class="hint">At least 8 characters, including letters and numbers.</span>
+          </div>
+
+          <div class="field">
+            <label for="confirmPassword">Confirm password</label>
+            <input class="input" id="confirmPassword" type="password" autocomplete="new-password" required>
+          </div>
+
+          <div class="field">
+            <label for="region">Region / city</label>
+            <input class="input" id="region" placeholder="Greater Accra">
+          </div>
+
+          <div class="card card-body" id="fee-note" style="background:var(--purple-50);border-color:var(--purple-100);margin-bottom:16px">
+            <span class="small muted">Loading registration fee…</span>
+          </div>
+
+          <label class="checkbox" style="margin-bottom:20px">
+            <input type="checkbox" id="terms" required>
+            <span class="small">I agree to the SUSU SAVE Terms of Service and Privacy Policy.</span>
+          </label>
+
+          <button class="btn btn-lg btn-block" type="submit">Create my account</button>
+        </div>
+
+        <p class="auth-alt">Already have an account? <a href="/login">Sign in</a></p>
+        <div class="credit" style="padding-top:28px">
+          Developed by <span class="dev">Kenneth Nartey</span> —
+          <a href="tel:+233555563413">0555563413</a> / <a href="tel:+233203208934">0203208934</a>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <script type="module" src="/js/pages/join.js"></script>
+</body>
+</html>

@@ -8,6 +8,8 @@ const feeService = require('../services/fee.service');
 const paymentService = require('../services/payment');
 const email = require('../services/email.service');
 const audit = require('../services/audit.service');
+const collectors = require('../services/collector.service');
+const notifications = require('../services/notification.service');
 const { getSettings } = require('../services/settings.service');
 const ids = require('../utils/ids');
 const ApiError = require('../utils/apiError');
@@ -24,13 +26,21 @@ const register = asyncHandler(async (req, res) => {
   const settings = await getSettings();
   const {
     accountType = 'personal', firstName, lastName, email: emailAddress, phone, password,
-    country, region, organizationName, organizationType, organizationAddress,
+    country, region, organizationName, organizationType, organizationAddress, joinCode,
   } = req.body;
 
   const existing = await User.findOne({ email: String(emailAddress).toLowerCase() });
   if (existing) throw ApiError.conflict('An account with that email already exists', 'EMAIL_TAKEN');
 
-  const isOrganization = accountType === 'organization';
+  // Signing up through a collector's link: the customer joins that collector's
+  // organization as an ordinary saver, whatever else the form asked for.
+  let joined = null;
+  if (joinCode) {
+    joined = await collectors.resolveJoinCode(joinCode);
+    await collectors.assertCapacity(joined);
+  }
+
+  const isOrganization = !joined && accountType === 'organization';
   if (isOrganization && !organizationName) {
     throw ApiError.badRequest('Organization name is required', 'MISSING_ORGANIZATION_NAME');
   }
@@ -47,13 +57,15 @@ const register = asyncHandler(async (req, res) => {
     country: country || 'Ghana',
     region: region || null,
     role: isOrganization ? ROLES.ORG_ADMIN : ROLES.USER,
+    organizationId: joined?._id || null,
     status: settings.rules.requireRegistrationPayment
       ? ACCOUNT_STATUS.PENDING_PAYMENT
       : ACCOUNT_STATUS.ACTIVE,
     emailVerificationTokenHash: ids.hashToken(verificationToken),
   });
 
-  let organization = null;
+  // The collector's organization owns the customer's fees and tenancy from here.
+  let organization = joined;
   if (isOrganization) {
     organization = await Organization.create({
       name: organizationName,
@@ -97,15 +109,30 @@ const register = asyncHandler(async (req, res) => {
     entityType: 'User',
     entityId: user._id,
     organizationId: organization?._id || null,
-    metadata: { accountType },
+    metadata: { accountType, ...(joined ? { via: 'join_link', joinCode: joined.joinCode } : {}) },
   });
+
+  if (joined) {
+    // The collector should learn about a new customer without checking the app.
+    await notifications.notify({
+      userId: joined.adminId,
+      organizationId: joined._id,
+      type: 'announcement',
+      title: 'New customer signed up',
+      body: `${user.firstName} ${user.lastName} joined ${joined.name} through your sign-up link.`,
+      icon: 'user-plus',
+      link: '/organization?tab=members',
+    });
+  }
 
   const issued = tokens.issueTokens(user);
   res.cookie('refreshToken', issued.refreshToken, tokens.refreshCookieOptions());
 
   return created(res, {
     user: publicUser(user),
-    organization,
+    // A customer joining a link gets the collector's name, not the tenant's
+    // fee overrides and plan limits.
+    organization: joined ? { _id: joined._id, name: joined.name } : organization,
     accessToken: issued.accessToken,
     payment: payment
       ? { reference: payment.reference, amountMinor: payment.amountMinor, checkoutUrl: payment.checkoutUrl }

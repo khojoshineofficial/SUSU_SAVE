@@ -328,6 +328,8 @@ img, svg { max-width: 100%; }
 .table tbody tr { transition: background var(--transition); }
 .table tbody tr:hover { background: var(--surface-alt); }
 .table .clickable { cursor: pointer; }
+/* Money columns: right-aligned and tabular so the digits line up down the column. */
+.table th.num, .table td.num { text-align: right; font-variant-numeric: tabular-nums; }
 
 /* ------------------------------ progress ------------------------------ */
 

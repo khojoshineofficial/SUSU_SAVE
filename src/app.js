@@ -117,6 +117,9 @@ function createApp() {
     const explicit = PAGES[req.path];
     if (explicit) return res.sendFile(path.join(PUBLIC_DIR, explicit));
     if (req.path.startsWith('/admin')) return res.sendFile(path.join(PUBLIC_DIR, 'pages/admin.html'));
+    // /join/<code> — a collector's public sign-up link. The code is read from
+    // the path by the page itself.
+    if (req.path.startsWith('/join/')) return res.sendFile(path.join(PUBLIC_DIR, 'pages/join.html'));
     return res.sendFile(path.join(PUBLIC_DIR, 'pages/app.html'));
   });
 

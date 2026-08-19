@@ -21,6 +21,8 @@ router.get('/current/performance', adminOnly, ctrl.performance);
 router.get('/current', adminOnly, ctrl.getOrganization);
 router.patch('/current', adminOnly, ctrl.updateOrganization);
 router.get('/current/members', adminOnly, ctrl.listMembers);
+router.get('/current/join-link', adminOnly, ctrl.getJoinLink);
+router.post('/current/join-link/rotate', adminOnly, ctrl.rotateJoinLink);
 router.get('/current/groups', adminOnly, ctrl.listGroups);
 
 router.post(

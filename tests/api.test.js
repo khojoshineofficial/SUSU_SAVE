@@ -472,3 +472,111 @@ dbTest('public settings expose fees without leaking internal configuration', asy
   assert.ok('registrationFeeMinor' in res.body.data);
   assert.equal(res.body.data.rules, undefined, 'internal rules are not published');
 });
+
+/* ------------------------------ collector links ------------------------------- */
+
+/** An organization with a live join link, plus its admin. */
+async function makeCollector() {
+  const admin = await makeUser({ role: 'org_admin' });
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const org = await models.Organization.create({
+    name: `Collector ${suffix}`,
+    slug: `collector-${suffix}`,
+    adminId: admin._id,
+    status: 'active',
+  });
+  await models.User.updateOne({ _id: admin._id }, { organizationId: org._id });
+  admin.organizationId = org._id;
+
+  const link = await request('GET', '/api/organizations/current/join-link', { token: await tokenFor(admin) });
+  return { admin, org, link: link.body.data };
+}
+
+dbTest('a collector gets a shareable join link, and it identifies them publicly', async () => {
+  const { link } = await makeCollector();
+
+  assert.equal(link.joinCode.length, 8);
+  assert.ok(link.url.endsWith(`/join/${link.joinCode}`));
+  assert.equal(link.enabled, true);
+
+  // The public lookup names the collector and leaks nothing else.
+  const lookup = await request('GET', `/api/collectors/${link.joinCode}`);
+  assert.equal(lookup.status, 200);
+  assert.ok(lookup.body.data.collector.name);
+  assert.equal(lookup.body.data.collector.limits, undefined, 'plan limits are not published');
+  assert.equal(lookup.body.data.collector.feeOverrides, undefined, 'fee overrides are not published');
+});
+
+dbTest('a customer signing up through the link joins that collector', async () => {
+  const { org, link } = await makeCollector();
+
+  const res = await request('POST', '/api/auth/register', {
+    body: {
+      firstName: 'Ama', lastName: 'Mensah', email: 'ama.join@test.local',
+      phone: '0244778899', password: 'Password123', joinCode: link.joinCode,
+    },
+  });
+  assert.equal(res.status, 201);
+  assert.equal(String(res.body.data.user.organizationId), String(org._id));
+  assert.equal(res.body.data.user.role, 'user', 'a link customer is a saver, never an admin');
+
+  // The collector now sees them, with a balance.
+  const members = await request('GET', '/api/organizations/current/members', {
+    token: await tokenFor(await models.User.findById(org.adminId)),
+  });
+  const customer = members.body.data.members.find((m) => m.email === 'ama.join@test.local');
+  assert.ok(customer, 'the customer appears in the collector members list');
+  assert.equal(customer.balanceMinor, 0);
+});
+
+dbTest('a join link cannot be used to become an organization admin', async () => {
+  const { org, link } = await makeCollector();
+
+  const res = await request('POST', '/api/auth/register', {
+    body: {
+      accountType: 'organization', organizationName: 'Sneaky Ltd',
+      firstName: 'Kojo', lastName: 'Boateng', email: 'kojo.join@test.local',
+      phone: '0244778800', password: 'Password123', joinCode: link.joinCode,
+    },
+  });
+  assert.equal(res.status, 201);
+  assert.equal(res.body.data.user.role, 'user');
+  assert.equal(String(res.body.data.user.organizationId), String(org._id));
+  assert.equal(await models.Organization.countDocuments({ name: 'Sneaky Ltd' }), 0);
+});
+
+dbTest('a closed or rotated link stops working', async () => {
+  const { admin, link } = await makeCollector();
+  const token = await tokenFor(admin);
+
+  await request('PATCH', '/api/organizations/current', { token, body: { settings: { allowPublicJoin: false } } });
+  const closed = await request('GET', `/api/collectors/${link.joinCode}`);
+  assert.equal(closed.status, 404);
+  assert.equal(closed.body.errorCode, 'JOIN_LINK_CLOSED');
+
+  // Registration refuses it too, not just the page that displays it.
+  const refused = await request('POST', '/api/auth/register', {
+    body: {
+      firstName: 'Yaa', lastName: 'Asare', email: 'yaa.join@test.local',
+      phone: '0244778877', password: 'Password123', joinCode: link.joinCode,
+    },
+  });
+  assert.equal(refused.status, 404);
+  assert.equal(await models.User.countDocuments({ email: 'yaa.join@test.local' }), 0);
+
+  await request('PATCH', '/api/organizations/current', { token, body: { settings: { allowPublicJoin: true } } });
+  const rotated = await request('POST', '/api/organizations/current/join-link/rotate', { token, body: {} });
+  assert.notEqual(rotated.body.data.joinCode, link.joinCode);
+  assert.equal((await request('GET', `/api/collectors/${link.joinCode}`)).status, 404, 'the old code is dead');
+  assert.equal((await request('GET', `/api/collectors/${rotated.body.data.joinCode}`)).status, 200);
+});
+
+dbTest('one collector cannot manage another collector link', async () => {
+  const a = await makeCollector();
+  const b = await makeCollector();
+  assert.notEqual(a.link.joinCode, b.link.joinCode, 'each collector gets its own code');
+
+  // /current is resolved from the caller's own tenant, so B's token yields B's link.
+  const res = await request('GET', '/api/organizations/current/join-link', { token: await tokenFor(b.admin) });
+  assert.equal(res.body.data.joinCode, b.link.joinCode);
+});

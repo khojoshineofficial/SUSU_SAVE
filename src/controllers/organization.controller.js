@@ -1,13 +1,14 @@
 'use strict';
 
 const {
-  Organization, User, SusuGroup, GroupMember, Transaction, Invitation, constants,
+  Organization, User, SusuGroup, GroupMember, Transaction, Invitation, Wallet, constants,
 } = require('../models');
 const { ROLES, ACCOUNT_STATUS, GROUP_MEMBER_STATUS } = constants;
 const dashboardService = require('../services/dashboard.service');
 const reportService = require('../services/report.service');
 const email = require('../services/email.service');
 const audit = require('../services/audit.service');
+const collectors = require('../services/collector.service');
 const ids = require('../utils/ids');
 const ApiError = require('../utils/apiError');
 const { asyncHandler, ok, created, paginate, meta } = require('../utils/http');
@@ -39,7 +40,7 @@ const updateOrganization = asyncHandler(async (req, res) => {
     if (req.body[field] !== undefined) organization[field] = req.body[field];
   });
   if (req.body.settings) {
-    ['allowMemberGroupCreation', 'requireGroupApproval'].forEach((key) => {
+    ['allowMemberGroupCreation', 'requireGroupApproval', 'allowPublicJoin'].forEach((key) => {
       if (typeof req.body.settings[key] === 'boolean') organization.settings[key] = req.body.settings[key];
     });
   }
@@ -49,13 +50,75 @@ const updateOrganization = asyncHandler(async (req, res) => {
   return ok(res, { organization }, 'Organization updated');
 });
 
+/**
+ * Members, each with the balance the collector needs to see at a glance. The
+ * wallet figures come from the wallet projection in one extra query rather than
+ * one per member, so a collector with hundreds of customers still loads fast.
+ */
 const listMembers = asyncHandler(async (req, res) => {
   const organization = await resolveOrganization(req);
   const members = await User.find({ organizationId: organization._id })
     .select('firstName lastName email phone role status createdAt lastLoginAt avatarUrl')
     .sort({ createdAt: -1 })
     .lean();
-  return ok(res, { members });
+
+  const wallets = await Wallet.find({ userId: { $in: members.map((m) => m._id) } })
+    .select('userId availableBalanceMinor totalDepositedMinor totalWithdrawnMinor')
+    .lean();
+  const byUser = new Map(wallets.map((w) => [String(w.userId), w]));
+
+  return ok(res, {
+    members: members.map((m) => {
+      const wallet = byUser.get(String(m._id));
+      return {
+        ...m,
+        balanceMinor: wallet?.availableBalanceMinor || 0,
+        totalDepositedMinor: wallet?.totalDepositedMinor || 0,
+        totalWithdrawnMinor: wallet?.totalWithdrawnMinor || 0,
+      };
+    }),
+  });
+});
+
+/* ------------------------------- join links -------------------------------- */
+
+/**
+ * The collector's public sign-up link. A GET mints the code on first use, so a
+ * collector never has to think about "creating" one — they open the tab and the
+ * link is there to share.
+ */
+const getJoinLink = asyncHandler(async (req, res) => {
+  const organization = await resolveOrganization(req);
+  const code = await collectors.ensureJoinCode(organization);
+
+  const signups = await User.countDocuments({
+    organizationId: organization._id,
+    _id: { $ne: organization.adminId },
+  });
+
+  return ok(res, {
+    joinCode: code,
+    url: collectors.linkFor(code),
+    enabled: organization.settings?.allowPublicJoin !== false,
+    customers: signups,
+    capacity: organization.limits?.maxMembers || null,
+  });
+});
+
+/** Issues a new code. Every link already shared stops working immediately. */
+const rotateJoinLink = asyncHandler(async (req, res) => {
+  const organization = await resolveOrganization(req);
+  const code = await collectors.regenerateJoinCode(organization);
+
+  await audit.log({
+    req,
+    action: 'organization.join_link_rotated',
+    entityType: 'Organization',
+    entityId: organization._id,
+    organizationId: organization._id,
+  });
+
+  return ok(res, { joinCode: code, url: collectors.linkFor(code) }, 'New sign-up link issued. The old one no longer works.');
 });
 
 const inviteMember = asyncHandler(async (req, res) => {
@@ -290,6 +353,8 @@ module.exports = {
   getOrganization,
   updateOrganization,
   listMembers,
+  getJoinLink,
+  rotateJoinLink,
   inviteMember,
   acceptInvitation,
   removeMember,

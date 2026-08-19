@@ -18,6 +18,7 @@ router.post(
     phone: { required: true, checks: ['phone'] },
     password: { required: true, checks: ['password'] },
     organizationName: { checks: ['string'], maxLength: 120 },
+    joinCode: { checks: ['string'], maxLength: 16 },
   }),
   ctrl.register,
 );

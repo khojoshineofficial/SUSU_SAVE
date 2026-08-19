@@ -10,6 +10,9 @@ const router = express.Router();
 // Public: the landing page and signup flow read fee/limit configuration here.
 router.get('/settings/public', ctrl.publicSettings);
 
+// Public: the join page shows who a sign-up link belongs to before anyone signs up.
+router.get('/collectors/:code', ctrl.collectorByCode);
+
 router.use(authenticate);
 
 router.get('/dashboard', ctrl.getDashboard);

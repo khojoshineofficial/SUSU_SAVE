@@ -7,6 +7,7 @@ const { ROLES, SUPPORT_STATUS, GROUP_MEMBER_STATUS } = constants;
 const { GroupMember } = require('../models');
 const dashboardService = require('../services/dashboard.service');
 const notificationService = require('../services/notification.service');
+const collectorService = require('../services/collector.service');
 const { getSettings } = require('../services/settings.service');
 const ids = require('../utils/ids');
 const ApiError = require('../utils/apiError');
@@ -148,6 +149,12 @@ const publicSettings = asyncHandler(async (req, res) => {
   });
 });
 
+/** Public: who is behind a /join/<code> link. Unauthenticated by design. */
+const collectorByCode = asyncHandler(async (req, res) => {
+  const collector = await collectorService.publicProfile(req.params.code);
+  return ok(res, { collector });
+});
+
 /** Organization directory entry used by the org admin dashboard. */
 const organizationOverview = asyncHandler(async (req, res) => {
   if (!req.user.organizationId) throw ApiError.badRequest('You do not belong to an organization', 'NO_ORGANIZATION');
@@ -168,5 +175,6 @@ module.exports = {
   createTicket,
   replyToTicket,
   publicSettings,
+  collectorByCode,
   organizationOverview,
 };
