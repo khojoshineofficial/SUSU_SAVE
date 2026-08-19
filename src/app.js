@@ -15,6 +15,7 @@ const { notFoundHandler, errorHandler } = require('./middleware/error');
 const { sanitize } = require('./middleware/validate');
 const { apiLimiter } = require('./middleware/rateLimit');
 const { getSettings } = require('./services/settings.service');
+const themeController = require('./controllers/theme.controller');
 const { asyncHandler } = require('./utils/http');
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
@@ -52,10 +53,17 @@ function createApp() {
 
   // The raw body is retained so webhook signatures can be verified over exactly
   // the bytes the provider signed.
-  app.use(express.json({
-    limit: '1mb',
-    verify: (req, _res, buf) => { req.rawBody = buf.toString('utf8'); },
-  }));
+  const keepRawBody = (req, _res, buf) => { req.rawBody = buf.toString('utf8'); };
+  const standardJson = express.json({ limit: '1mb', verify: keepRawBody });
+  // Flyers, logos and favicons are uploaded as base64 data URLs, which are a
+  // third larger than the file. Only the two super-admin routes that accept an
+  // image get the bigger ceiling; everything else stays at 1mb.
+  const uploadJson = express.json({ limit: '8mb', verify: keepRawBody });
+  const UPLOAD_ROUTES = /^\/api\/admin\/(announcements|theme)\b/;
+
+  app.use((req, res, next) => (
+    UPLOAD_ROUTES.test(req.path) ? uploadJson(req, res, next) : standardJson(req, res, next)
+  ));
   app.use(express.urlencoded({ extended: true, limit: '1mb' }));
   app.use(sanitize);
 
@@ -98,6 +106,11 @@ function createApp() {
   app.use('/api', apiLimiter, routes);
 
   /* --------------------------------- frontend -------------------------------- */
+
+  // Generated from the super admin's appearance settings and loaded by every
+  // page after the design system, so it overrides tokens rather than replacing
+  // the stylesheet. Declared before express.static so it is never shadowed.
+  app.get('/theme.css', themeController.stylesheet);
 
   app.use(express.static(PUBLIC_DIR, { maxAge: env.isProduction ? '7d' : 0, index: false }));
 

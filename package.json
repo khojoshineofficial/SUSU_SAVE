@@ -1,7 +1,7 @@
 {
   "name": "susu-save",
   "version": "1.0.0",
-  "description": "SUSU SAVE \u2014 a multi-tenant digital Susu savings platform. Save Together, Grow Together.",
+  "description": "SUSU SAVE — a multi-tenant digital Susu savings platform. Save Together, Grow Together.",
   "main": "src/server.js",
   "engines": {
     "node": ">=20"
@@ -33,7 +33,8 @@
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.6.0",
     "morgan": "^1.10.0",
-    "node-cron": "^3.0.3"
+    "node-cron": "^3.0.3",
+    "qrcode": "^1.5.4"
   },
   "devDependencies": {
     "mongodb-memory-server": "^10.0.0"

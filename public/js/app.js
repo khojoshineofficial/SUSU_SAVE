@@ -11,6 +11,7 @@ import { mountBackToTop, mountCredit, mountMaintenanceBanner } from './core/chro
 
 import { renderDashboard } from './views/dashboard.js';
 import { renderGroups, renderGroupDetail, renderCreateGroup, renderJoinGroup } from './views/groups.js';
+import { renderPay } from './views/pay.js';
 import { renderSavings, renderSavingsDetail, renderRentSavings } from './views/savings.js';
 import { renderWallet, renderTransactions, renderTransactionDetail, renderPayouts } from './views/wallet.js';
 import {
@@ -26,6 +27,8 @@ const ROUTES = [
   { path: '/groups/create', view: renderCreateGroup, title: 'Create Group' },
   { path: '/groups/:id', view: renderGroupDetail, title: 'Group' },
   { path: '/join-group', view: renderJoinGroup, title: 'Join a Group' },
+  // Where a scanned QR code lands.
+  { path: '/pay/:code', view: renderPay, title: 'Pay contribution' },
   { path: '/savings', view: renderSavings, title: 'My Savings' },
   { path: '/savings/:id', view: renderSavingsDetail, title: 'Savings Plan' },
   { path: '/rent-savings', view: renderRentSavings, title: 'Rent Savings' },

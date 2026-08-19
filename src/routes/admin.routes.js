@@ -2,6 +2,8 @@
 
 const express = require('express');
 const ctrl = require('../controllers/admin.controller');
+const announcements = require('../controllers/announcement.controller');
+const theme = require('../controllers/theme.controller');
 const { authenticate, requireSuperAdmin, requireStaff } = require('../middleware/auth');
 const { validate } = require('../middleware/validate');
 
@@ -45,6 +47,17 @@ router.post('/payouts/:id/run', requireSuperAdmin, ctrl.runPayout);
 
 router.get('/settings', requireSuperAdmin, ctrl.getSettings);
 router.patch('/settings', requireSuperAdmin, ctrl.updateSettings);
+
+// Announcements and appearance change what every visitor sees, so they belong
+// to the owner alone — the same bar as fees and maintenance mode.
+router.get('/announcements', requireSuperAdmin, announcements.list);
+router.post('/announcements', requireSuperAdmin, announcements.create);
+router.patch('/announcements/:id', requireSuperAdmin, announcements.update);
+router.delete('/announcements/:id', requireSuperAdmin, announcements.remove);
+
+router.get('/theme', requireSuperAdmin, theme.getTheme);
+router.put('/theme', requireSuperAdmin, theme.saveTheme);
+router.post('/theme/reset', requireSuperAdmin, theme.resetTheme);
 
 router.get('/plans', requireSuperAdmin, ctrl.listPlans);
 router.post('/plans', requireSuperAdmin, validate({ code: { required: true, checks: ['string'] }, name: { required: true, checks: ['string'] } }), ctrl.upsertPlan);

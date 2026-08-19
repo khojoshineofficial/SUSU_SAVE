@@ -8,6 +8,7 @@ const { GroupMember } = require('../models');
 const dashboardService = require('../services/dashboard.service');
 const notificationService = require('../services/notification.service');
 const collectorService = require('../services/collector.service');
+const themeService = require('../services/theme.service');
 const { getSettings } = require('../services/settings.service');
 const ids = require('../utils/ids');
 const ApiError = require('../utils/apiError');
@@ -146,6 +147,17 @@ const publicSettings = asyncHandler(async (req, res) => {
     support: settings.support,
     maintenanceMode: settings.maintenanceMode,
     maintenanceMessage: settings.maintenanceMode ? settings.maintenanceMessage : '',
+    // The pieces of the theme that JavaScript has to apply — the colours and
+    // fonts arrive as CSS through /theme.css instead.
+    branding: {
+      logoUrl: settings.theme?.logoUrl || settings.logoUrl || '',
+      faviconUrl: settings.theme?.faviconUrl || '',
+      fontHref: themeService.fontHref(settings.theme || {}),
+      themeVersion: settings.theme?.version || 0,
+      banner: settings.theme?.bannerEnabled
+        ? { text: settings.theme.bannerText || '', url: settings.theme.bannerUrl || '' }
+        : null,
+    },
   });
 });
 

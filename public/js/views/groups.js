@@ -137,6 +137,8 @@ export async function renderGroupDetail(root, { params, navigate }) {
       <button class="tab active" data-tab="members">Members</button>
       <button class="tab" data-tab="contributions">Contributions</button>
       <button class="tab" data-tab="payouts">Payout schedule</button>
+      ${isOrganizer ? '<button class="tab" data-tab="payments">Payments</button>' : ''}
+      ${isOrganizer ? '<button class="tab" data-tab="qr">QR codes</button>' : ''}
     </div>
     <div id="tab-panel"></div>`;
 
@@ -145,6 +147,8 @@ export async function renderGroupDetail(root, { params, navigate }) {
     members: () => membersTab(panel, { group, members, isOrganizer, reload: () => renderGroupDetail(root, { params, navigate }) }),
     contributions: () => contributionsTab(panel, group),
     payouts: () => payoutsTab(panel, { group, payouts, isOrganizer, reload: () => renderGroupDetail(root, { params, navigate }) }),
+    payments: () => paymentsTab(panel, group),
+    qr: () => qrTab(panel, group),
   };
   tabs.members();
 
@@ -662,4 +666,249 @@ export function renderJoinGroup(root, { navigate, query }) {
 
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter') button.click(); });
   if (query?.code) lookup();
+}
+
+/* ------------------------------- payments view ------------------------------ */
+
+/**
+ * Who has paid this cycle, who has not, and the references behind each payment.
+ *
+ * Read straight from the contribution rows the ledger already maintains — a
+ * member reads PAID here only once a verified payment has settled, because that
+ * is the same field the payment pipeline sets.
+ */
+async function paymentsTab(panel, group, cycle) {
+  panel.innerHTML = `<div class="card card-body">${skeletonLines(6)}</div>`;
+  let data;
+  try {
+    data = await api.get(`/groups/${group._id}/payments`, cycle ? { cycle } : undefined);
+  } catch (err) {
+    panel.innerHTML = errorState(err.message);
+    return;
+  }
+
+  const { summary, rows } = data;
+  const progress = summary.expectedThisCycleMinor
+    ? Math.round((summary.collectedThisCycleMinor / summary.expectedThisCycleMinor) * 100)
+    : 0;
+
+  const cycleOptions = Array.from({ length: summary.totalCycles || 1 }, (_, i) => i + 1)
+    .map((c) => `<option value="${c}" ${c === summary.cycle ? 'selected' : ''}>Cycle ${c}</option>`).join('');
+
+  panel.innerHTML = `
+    <div class="stat-grid">
+      <div class="stat green"><div class="stat-icon">${icon('check-circle')}</div><div class="stat-label">Paid</div>
+        <div class="stat-value">${summary.paid}</div><div class="stat-meta">of ${summary.members} members</div></div>
+      <div class="stat orange"><div class="stat-icon">${icon('clock')}</div><div class="stat-label">Not yet paid</div>
+        <div class="stat-value">${summary.unpaid + summary.partial}</div>
+        <div class="stat-meta">${summary.partial} part-paid · ${summary.missed} missed</div></div>
+      <div class="stat blue"><div class="stat-icon">${icon('receipt')}</div><div class="stat-label">Pending payments</div>
+        <div class="stat-value">${summary.pendingPayments}</div><div class="stat-meta">Started, not yet confirmed</div></div>
+      <div class="stat purple"><div class="stat-icon">${icon('wallet')}</div><div class="stat-label">Collected this cycle</div>
+        <div class="stat-value">${money(summary.collectedThisCycleMinor)}</div>
+        <div class="stat-meta">of ${money(summary.expectedThisCycleMinor)}</div></div>
+    </div>
+
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-body">
+        <div class="row-between small" style="margin-bottom:6px">
+          <span class="strong">Cycle ${summary.cycle} progress</span>
+          <span class="muted">${progress}%</span>
+        </div>
+        <div class="progress"><div class="progress-bar ${progress >= 100 ? '' : 'orange'}" style="width:${Math.min(100, progress)}%"></div></div>
+        <p class="tiny muted" style="margin:8px 0 0">
+          ${money(summary.collectedAllTimeMinor)} collected across all cycles,
+          of ${money(summary.expectedAllTimeMinor)} scheduled.</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h3>Member payments</h3>
+        <select class="select" id="cycle-picker" style="width:auto">${cycleOptions}</select>
+      </div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>#</th><th>Member</th><th class="num">Expected</th><th class="num">Paid</th>
+            <th>Status</th><th>Paid at</th><th>Reference</th></tr></thead>
+          <tbody>${rows.map((r) => `
+            <tr>
+              <td data-label="#">${r.payoutPosition ?? '—'}</td>
+              <td data-label="Member"><div class="strong">${escape(r.name)}</div>
+                <div class="tiny muted">${escape(r.phone || '')}</div></td>
+              <td data-label="Expected" class="num">${money(r.expectedAmountMinor)}</td>
+              <td data-label="Paid" class="num strong">${money(r.paidAmountMinor)}</td>
+              <td data-label="Status">${statusBadge(r.status)}${r.daysLate ? `<div class="tiny muted">${r.daysLate}d late</div>` : ''}</td>
+              <td data-label="Paid at">${r.paidAt ? date(r.paidAt) : '—'}</td>
+              <td data-label="Reference">${r.receipts.length
+    ? r.receipts.map((t) => `<div class="tiny"><span class="strong">${escape(t.transactionId || '—')}</span>
+        <span class="muted">${escape(titleCase(t.method || ''))} · ${escape(t.status)}</span></div>`).join('')
+    : '<span class="tiny muted">—</span>'}</td>
+            </tr>`).join('')}</tbody>
+        </table>
+      </div>
+    </div>`;
+
+  panel.querySelector('#cycle-picker').addEventListener('change', (event) => {
+    paymentsTab(panel, group, Number(event.target.value));
+  });
+}
+
+/* --------------------------------- QR codes -------------------------------- */
+
+/**
+ * The organizer's QR sheet.
+ *
+ * Images are rendered from the code by the server rather than encoded in the
+ * page, so the QR the organizer prints is exactly the one the server will
+ * honour. What a code carries is only a URL — scanning it opens the payment
+ * page, where the member still has to be signed in as themselves.
+ */
+async function qrTab(panel, group) {
+  panel.innerHTML = `<div class="card card-body">${skeletonLines(5)}</div>`;
+  let data;
+  try {
+    data = await api.get(`/groups/${group._id}/qr`);
+  } catch (err) {
+    panel.innerHTML = errorState(err.message);
+    return;
+  }
+
+  const { groupCode, memberCodes } = data;
+
+  panel.innerHTML = `
+    <div class="card no-print" style="margin-bottom:20px">
+      <div class="card-head">
+        <h3>${icon('smartphone')} Group QR code</h3>
+        <div class="row wrap" style="gap:8px">
+          <button class="btn btn-sm" data-download="${groupCode._id}" data-name="${escape(group.name)}">
+            ${icon('download')} Download</button>
+          <button class="btn btn-ghost btn-sm" data-share="${escape(groupCode.url)}">${icon('share')} Share</button>
+          <button class="btn btn-ghost btn-sm" data-print="group">Print</button>
+          <button class="btn btn-ghost btn-sm" data-rotate="${groupCode._id}">Replace</button>
+        </div>
+      </div>
+      <div class="card-body row wrap" style="gap:20px;align-items:center">
+        <img id="group-qr" alt="Group QR code" style="width:170px;height:170px;background:var(--surface-alt);border-radius:var(--radius)">
+        <div class="col grow" style="gap:6px;min-width:220px">
+          <p class="small muted" style="margin:0">
+            Print this once and put it where members pay. Anyone in the group who scans it lands on
+            their own contribution page for ${escape(group.name)} — they never type the group name or amount.</p>
+          <div class="tiny muted">Scanned ${groupCode.scanCount} times${groupCode.lastScannedAt ? ` · last ${relative(groupCode.lastScannedAt)}` : ''}</div>
+          <input class="input" readonly value="${escape(groupCode.url)}" style="font-size:12px">
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head no-print">
+        <h3>Member QR codes (${memberCodes.length})</h3>
+        <div class="row wrap" style="gap:8px">
+          <button class="btn btn-ghost btn-sm" data-print="members">${icon('file')} Print all</button>
+        </div>
+      </div>
+      <div class="card-body">
+        <p class="small muted no-print" style="margin-top:0">
+          One card per member. A member scanning their own card goes straight to what they owe.
+          Scanning someone else's shows nothing about them and cannot pay from their wallet.</p>
+        ${memberCodes.length ? `<div class="qr-grid" id="member-qr-grid">
+          ${memberCodes.map((m) => `
+            <div class="qr-card" data-card="${m._id}">
+              <img data-member-qr="${m._id}" alt="" style="background:var(--surface-alt);aspect-ratio:1">
+              <div class="qr-name">${escape(m.member.name)}</div>
+              <div class="qr-sub">${escape(group.name)} · position ${m.member.payoutPosition ?? '—'}</div>
+              <div class="qr-sub">Scanned ${m.scanCount}×</div>
+              <div class="row no-print" style="gap:6px;justify-content:center;margin-top:8px">
+                <button class="btn btn-ghost btn-sm" data-download="${m._id}" data-name="${escape(m.member.name)}">Download</button>
+                <button class="btn btn-ghost btn-sm" data-revoke="${m._id}">Revoke</button>
+              </div>
+            </div>`).join('')}
+        </div>` : emptyState({
+    icon: 'users',
+    title: 'No active members yet',
+    message: 'Member codes are created once people join and are approved.',
+  })}
+      </div>
+    </div>`;
+
+  /* Images are fetched one at a time so a large group does not open 200
+     connections at once. */
+  const loadImage = async (codeId, target) => {
+    try {
+      const { png } = await api.get(`/groups/${group._id}/qr/${codeId}/image`);
+      target.src = png;
+      target.dataset.png = png;
+    } catch { target.replaceWith(Object.assign(document.createElement('div'), { className: 'tiny muted', textContent: 'Could not load' })); }
+  };
+
+  await loadImage(groupCode._id, panel.querySelector('#group-qr'));
+  for (const m of memberCodes) {
+    // eslint-disable-next-line no-await-in-loop
+    await loadImage(m._id, panel.querySelector(`[data-member-qr="${m._id}"]`));
+  }
+
+  panel.querySelectorAll('[data-download]').forEach((btn) => btn.addEventListener('click', () => {
+    const id = btn.dataset.download;
+    const img = panel.querySelector(id === groupCode._id ? '#group-qr' : `[data-member-qr="${id}"]`);
+    if (!img?.dataset.png) { toastError('The code is still loading'); return; }
+    const link = document.createElement('a');
+    link.href = img.dataset.png;
+    link.download = `${btn.dataset.name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-susu-qr.png`;
+    link.click();
+  }));
+
+  panel.querySelector('[data-share]')?.addEventListener('click', async (event) => {
+    const url = event.currentTarget.dataset.share;
+    const text = `Pay your ${group.name} contribution here: ${url}`;
+    // The Web Share API opens the phone's own share sheet where it exists —
+    // WhatsApp, SMS, anything — and falls back to the clipboard where it does not.
+    if (navigator.share) {
+      try { await navigator.share({ title: group.name, text, url }); return; } catch { /* cancelled */ }
+    }
+    copyToClipboard(url);
+  });
+
+  panel.querySelectorAll('[data-print]').forEach((btn) => btn.addEventListener('click', () => {
+    const target = btn.dataset.print === 'group'
+      ? panel.querySelector('#group-qr').closest('.card')
+      : panel.querySelector('#member-qr-grid');
+    if (!target) return;
+    target.classList.add('qr-print');
+    window.print();
+    setTimeout(() => target.classList.remove('qr-print'), 500);
+  }));
+
+  panel.querySelector('[data-rotate]')?.addEventListener('click', async (event) => {
+    const confirmed = await confirmDialog({
+      title: 'Replace the group QR code?',
+      message: 'Anything already printed with the old code stops working immediately.',
+      confirmLabel: 'Replace it',
+      danger: true,
+    });
+    if (!confirmed) return;
+    try {
+      await api.post(`/groups/${group._id}/qr/${event.currentTarget.dataset.rotate}/rotate`, {});
+      toastSuccess('New QR code issued');
+      qrTab(panel, group);
+    } catch (err) {
+      toastError(err.message);
+    }
+  });
+
+  panel.querySelectorAll('[data-revoke]').forEach((btn) => btn.addEventListener('click', async () => {
+    const confirmed = await confirmDialog({
+      title: 'Revoke this member code?',
+      message: 'Their printed card stops working. Reload the tab to issue them a new one.',
+      confirmLabel: 'Revoke',
+      danger: true,
+    });
+    if (!confirmed) return;
+    try {
+      await api.post(`/groups/${group._id}/qr/${btn.dataset.revoke}/revoke`, {});
+      toastSuccess('Code revoked');
+      qrTab(panel, group);
+    } catch (err) {
+      toastError(err.message);
+    }
+  }));
 }

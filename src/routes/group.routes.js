@@ -2,6 +2,7 @@
 
 const express = require('express');
 const ctrl = require('../controllers/group.controller');
+const qr = require('../controllers/paymentCode.controller');
 const {
   authenticate, requireActiveAccount, requireGroupMember, requireGroupOrganizer,
 } = require('../middleware/auth');
@@ -62,6 +63,14 @@ router.post(
   validate({ amount: { checks: ['number', 'positive'] }, cycle: { checks: ['integer'] } }),
   ctrl.contribute,
 );
+
+// QR codes and the organizer's payment view. Both sit behind requireGroupMember
+// for tenant and membership checks, then requireGroupOrganizer.
+router.get('/:groupId/qr', requireGroupMember, requireGroupOrganizer, qr.listCodes);
+router.get('/:groupId/qr/:codeId/image', requireGroupMember, requireGroupOrganizer, qr.codeImage);
+router.post('/:groupId/qr/:codeId/rotate', requireGroupMember, requireGroupOrganizer, qr.rotateCode);
+router.post('/:groupId/qr/:codeId/revoke', requireGroupMember, requireGroupOrganizer, qr.revokeCode);
+router.get('/:groupId/payments', requireGroupMember, requireGroupOrganizer, qr.groupPayments);
 
 router.get('/:groupId/payouts', requireGroupMember, ctrl.listPayouts);
 router.post('/:groupId/payouts/:payoutId/run', requireGroupMember, requireGroupOrganizer, ctrl.runPayout);

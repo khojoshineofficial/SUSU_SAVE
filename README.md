@@ -93,6 +93,37 @@ Both accounts change their own username and password from the console's
 **My account** tab once signed in; staff may sign in with either their username
 or their email.
 
+### Announcements
+The super admin publishes flyers under **Announcements**: an image, a title, a message, an
+optional button, an audience (everyone / signed-in members / signed-out visitors), a priority and
+an optional schedule window. Anything *active* and inside its window appears as a popup on every
+page of the site, fetched from the database — there is no hardcoded notice anywhere. A visitor who
+dismisses one does not see it again until it is edited.
+
+### Website appearance
+Under **Appearance** the super admin sets colours, fonts, type scale, corner rounding, the logo,
+the favicon, header and footer colours, and a banner strip. Edits preview live in the console;
+**Publish** writes them to the database and `GET /theme.css` regenerates.
+
+That stylesheet loads *after* the design system on every page, so it overrides tokens rather than
+replacing them: a blank field keeps the original design, and **Restore original design** clears
+the lot. Setting one primary colour regenerates the whole brand ramp, so hover states and tinted
+backgrounds move with it. Colours must be hex, fonts come from an allowlist and numbers are
+clamped — a theme value is served to every visitor inside a stylesheet, so nothing that could
+escape its declaration is accepted.
+
+### QR codes for contributions
+A group organizer opens **QR codes** on their group and gets one code for the group and one per
+member, each downloadable as PNG, shareable through the phone's share sheet, and printable as a
+sheet of cards. A member scanning lands on `/pay/<code>`, which resolves the group and their own
+outstanding cycle and offers a single button to pay it from their wallet.
+
+What the code carries is a URL and 22 random characters — no name, no member id, no amount. A
+scan proves nothing on its own: the page runs behind the member's own session and always offers
+*their* dues, so scanning someone else's card is a dead end rather than a way to pay from their
+wallet. Codes can be revoked or replaced, every scan is counted, and the double-tap case is
+covered by an idempotency key.
+
 ### Maintenance mode
 
 The super admin flips it under **Settings → Rules**. While it is on, an orange
@@ -358,7 +389,14 @@ Authenticate with `Authorization: Bearer <accessToken>`. The refresh token is an
 `/organizations` · `/organizations/:id/status` · `/organizations/:id/plan` · `/groups` ·
 `/transactions` (`?format=csv`) · `/withdrawals` · `/withdrawals/:id/approve` ·
 `/withdrawals/:id/reject` · `/payouts` · `/payouts/run-due` · `/payouts/:id/run` ·
-`/settings` · `/plans` · `/audit-logs` · `/reports/:kind`
+`/settings` · `/plans` · `/audit-logs` · `/reports/:kind` ·
+`/announcements` (GET/POST/PATCH/DELETE) · `/theme` (GET/PUT) · `/theme/reset`
+
+### Announcements, appearance and QR codes
+`GET /api/announcements/live` (public) · `GET /theme.css` (public) ·
+`GET /api/groups/:groupId/qr` · `GET /api/groups/:groupId/qr/:codeId/image` (`?format=svg`) ·
+`POST /api/groups/:groupId/qr/:codeId/rotate` · `POST /api/groups/:groupId/qr/:codeId/revoke` ·
+`GET /api/groups/:groupId/payments` · `GET /api/pay/:code`
 
 ### Payments
 `POST /api/payments/webhook` (unauthenticated, signature-verified) ·
@@ -426,7 +464,7 @@ more than one web instance — otherwise every instance runs the same jobs).
 npm test
 ```
 
-Five suites cover the parts where a bug costs someone money:
+Seven suites cover the parts where a bug costs someone money:
 
 - **money** — minor-unit conversion, rounding, no floating-point drift across 1,000 fee calculations
 - **ledger** — fee handling, insufficient-balance rejection, idempotent replays, concurrent
@@ -436,7 +474,11 @@ Five suites cover the parts where a bug costs someone money:
 - **fees** — configured fee resolution, organization overrides, withdrawal minimums, withdrawal
   reversal, savings lock periods, rent projection
 - **api** — registration and login over real HTTP, account enumeration resistance, RBAC,
-  tenant isolation, query-operator injection, webhook signature rejection and replay safety
+  tenant isolation, query-operator injection, webhook signature rejection and replay safety,
+  collector join links, announcement scheduling, and QR codes end to end
+- **theme** — colour, font and number validation, the generated stylesheet, and image uploads
+  (runs without a database)
+- **qr** — QR image generation (runs without a database)
 
 The pure-logic suite runs anywhere. The database-backed suites need MongoDB: they use
 `mongodb-memory-server` (downloaded on first run) or `MONGODB_TEST_URI` if you set it. In an

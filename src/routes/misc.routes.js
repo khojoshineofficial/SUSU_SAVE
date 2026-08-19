@@ -2,6 +2,8 @@
 
 const express = require('express');
 const ctrl = require('../controllers/misc.controller');
+const announcements = require('../controllers/announcement.controller');
+const qr = require('../controllers/paymentCode.controller');
 const { authenticate } = require('../middleware/auth');
 const { validate } = require('../middleware/validate');
 
@@ -12,6 +14,9 @@ router.get('/settings/public', ctrl.publicSettings);
 
 // Public: the join page shows who a sign-up link belongs to before anyone signs up.
 router.get('/collectors/:code', ctrl.collectorByCode);
+
+// Public: the announcement popup, shown to visitors and members alike.
+router.get('/announcements/live', announcements.live);
 
 router.use(authenticate);
 
@@ -38,5 +43,9 @@ router.post(
 );
 
 router.get('/my-organization', ctrl.organizationOverview);
+
+// Resolving a scanned QR code needs a session: the code identifies the group,
+// never the person holding the phone.
+router.get('/pay/:code', qr.resolveCode);
 
 module.exports = router;

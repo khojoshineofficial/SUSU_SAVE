@@ -55,6 +55,54 @@ const systemSettingSchema = new mongoose.Schema(
       phone: { type: String, default: '+233 000 000 000' },
     },
 
+    /**
+     * Visual settings the super admin controls from the console.
+     *
+     * These are served as CSS custom properties by GET /theme.css, which every
+     * page loads after the design system. They therefore *override* the built-in
+     * look rather than replacing it: anything left at its default keeps the
+     * original design, and clearing a value restores it.
+     */
+    theme: {
+      primaryColor: { type: String, default: '' },
+      secondaryColor: { type: String, default: '' },
+      backgroundColor: { type: String, default: '' },
+      surfaceColor: { type: String, default: '' },
+      textColor: { type: String, default: '' },
+      mutedTextColor: { type: String, default: '' },
+      buttonColor: { type: String, default: '' },
+      buttonTextColor: { type: String, default: '' },
+      borderColor: { type: String, default: '' },
+
+      /** A family name from the allowlist in theme.service — never raw CSS. */
+      fontFamily: { type: String, default: '' },
+      headingFontFamily: { type: String, default: '' },
+      baseFontSize: { type: Number, default: 0 }, // px; 0 = leave as designed
+      headingWeight: { type: Number, default: 0 },
+      headingLetterSpacing: { type: Number, default: 0 }, // em, may be negative
+      headingTransform: { type: String, default: '' }, // none | uppercase | capitalize
+      bodyLineHeight: { type: Number, default: 0 },
+      cornerRadius: { type: Number, default: 0 }, // px
+
+      logoUrl: { type: String, default: '' },
+      faviconUrl: { type: String, default: '' },
+
+      headerBackground: { type: String, default: '' },
+      headerTextColor: { type: String, default: '' },
+      footerBackground: { type: String, default: '' },
+      footerTextColor: { type: String, default: '' },
+
+      /** A thin strip above the header — promotions, notices, opening hours. */
+      bannerEnabled: { type: Boolean, default: false },
+      bannerText: { type: String, default: '' },
+      bannerUrl: { type: String, default: '' },
+      bannerBackground: { type: String, default: '' },
+      bannerTextColor: { type: String, default: '' },
+
+      /** Bumped on every publish so caches and open tabs pick up the change. */
+      version: { type: Number, default: 0 },
+    },
+
     maintenanceMode: { type: Boolean, default: false },
     maintenanceMessage: { type: String, default: '' },
 

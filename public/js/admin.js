@@ -27,6 +27,8 @@ const TABS = [
   ['payouts', 'Payouts', 'gift', true],
   ['reports', 'Reports', 'pie-chart', true],
   ['plans', 'Plans', 'credit-card', true],
+  ['announcements', 'Announcements', 'bell', true],
+  ['appearance', 'Appearance', 'sparkles', true],
   ['audit', 'Audit logs', 'shield'],
   ['settings', 'Settings', 'settings', true],
   ['account', 'My account', 'user'],
@@ -1126,6 +1128,8 @@ const TAB_VIEWS = {
   payouts: payoutsTab,
   reports: reportsTab,
   plans: plansTab,
+  announcements: announcementsTab,
+  appearance: appearanceTab,
   audit: auditTab,
   settings: settingsTab,
 };
@@ -1233,3 +1237,551 @@ async function boot() {
 }
 
 boot();
+
+/* ------------------------------ announcements ------------------------------ */
+
+/**
+ * Flyers and notices. Everything here drives the popup on the public site, so
+ * "active" plus a schedule window is the whole of what makes a notice appear —
+ * there is no separate publish step to forget.
+ */
+async function announcementsTab(root) {
+  root.innerHTML = `<div class="card">${skeletonLines(6)}</div>`;
+  let rows;
+  try {
+    ({ announcements: rows } = await api.get('/admin/announcements'));
+  } catch (err) {
+    root.innerHTML = errorState(err.message);
+    return;
+  }
+
+  const stateBadge = (liveState) => ({
+    live: '<span class="badge badge-success">Showing now</span>',
+    scheduled: '<span class="badge badge-info">Scheduled</span>',
+    expired: '<span class="badge badge-warning">Expired</span>',
+    inactive: '<span class="badge">Inactive</span>',
+  }[liveState] || '<span class="badge">Inactive</span>');
+
+  root.innerHTML = `
+    <div class="card-head" style="padding:0 0 16px">
+      <div>
+        <h3>Announcements</h3>
+        <p class="small muted" style="margin:0">Active announcements appear as a popup on every page of the site.</p>
+      </div>
+      <button class="btn" data-action="new">${icon('plus')} New announcement</button>
+    </div>
+
+    ${rows.length ? `<div class="qr-grid" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr))">
+      ${rows.map((a) => `
+        <div class="card">
+          ${a.imageUrl ? `<img src="${escape(a.imageUrl)}" alt=""
+            style="width:100%;height:150px;object-fit:cover;border-radius:var(--radius) var(--radius) 0 0">` : ''}
+          <div class="card-body col" style="gap:8px">
+            <div class="row-between" style="gap:8px">
+              <span class="strong">${escape(a.title)}</span>
+              ${stateBadge(a.liveState)}
+            </div>
+            ${a.body ? `<p class="small muted" style="margin:0">${escape(a.body.slice(0, 120))}${a.body.length > 120 ? '…' : ''}</p>` : ''}
+            <div class="tiny muted">
+              ${a.audience === 'everyone' ? 'Everyone' : a.audience === 'members' ? 'Signed-in members' : 'Signed-out visitors'}
+              · priority ${a.priority}
+              ${a.startsAt ? ` · from ${date(a.startsAt)}` : ''}${a.endsAt ? ` · until ${date(a.endsAt)}` : ''}
+              · ${a.impressions} views
+            </div>
+            <div class="row wrap" style="gap:8px">
+              <button class="btn btn-ghost btn-sm" data-edit="${a._id}">Edit</button>
+              <button class="btn btn-ghost btn-sm" data-toggle="${a._id}" data-status="${a.status}">
+                ${a.status === 'active' ? 'Deactivate' : 'Activate'}</button>
+              <button class="btn btn-ghost btn-sm" data-delete="${a._id}">Delete</button>
+            </div>
+          </div>
+        </div>`).join('')}
+    </div>` : emptyState({
+    icon: 'bell',
+    title: 'No announcements yet',
+    message: 'Publish a flyer and it appears as a popup on the site immediately.',
+  })}`;
+
+  const reload = () => announcementsTab(root);
+
+  root.querySelector('[data-action="new"]')?.addEventListener('click', () => openAnnouncementEditor(null, reload));
+
+  root.querySelectorAll('[data-edit]').forEach((btn) => btn.addEventListener('click', () => {
+    openAnnouncementEditor(rows.find((a) => a._id === btn.dataset.edit), reload);
+  }));
+
+  root.querySelectorAll('[data-toggle]').forEach((btn) => btn.addEventListener('click', async () => {
+    const restore = buttonLoading(btn);
+    try {
+      await api.patch(`/admin/announcements/${btn.dataset.toggle}`, {
+        status: btn.dataset.status === 'active' ? 'inactive' : 'active',
+      });
+      toastSuccess('Announcement updated');
+      reload();
+    } catch (err) {
+      toastError(err.message);
+      restore();
+    }
+  }));
+
+  root.querySelectorAll('[data-delete]').forEach((btn) => btn.addEventListener('click', async () => {
+    const confirmed = await confirmDialog({
+      title: 'Delete this announcement?',
+      message: 'It disappears from the site straight away. This cannot be undone.',
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!confirmed) return;
+    try {
+      await api.del(`/admin/announcements/${btn.dataset.delete}`);
+      toastSuccess('Announcement deleted');
+      reload();
+    } catch (err) {
+      toastError(err.message);
+    }
+  }));
+}
+
+/** Reads a chosen file as a data URL, which is how images reach the API. */
+function readFileAsDataUrl(file, maxBytes = 2 * 1024 * 1024) {
+  return new Promise((resolve, reject) => {
+    if (file.size > maxBytes) {
+      reject(new Error(`That image is ${(file.size / 1024 / 1024).toFixed(1)}MB — the limit is ${(maxBytes / 1024 / 1024).toFixed(0)}MB.`));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('That file could not be read.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+const dateInputValue = (value) => (value ? new Date(value).toISOString().slice(0, 16) : '');
+
+function openAnnouncementEditor(existing, onDone) {
+  let imageUrl = existing?.imageUrl || '';
+
+  const dialog = modal({
+    title: existing ? 'Edit announcement' : 'New announcement',
+    body: `
+      <div class="field">
+        <label for="a-title">Title</label>
+        <input class="input" id="a-title" maxlength="140" value="${escape(existing?.title || '')}" placeholder="December bonus susu">
+      </div>
+      <div class="field">
+        <label for="a-body">Message</label>
+        <textarea class="input" id="a-body" rows="3" maxlength="2000"
+          placeholder="A short line or two explaining the notice.">${escape(existing?.body || '')}</textarea>
+      </div>
+
+      <div class="field">
+        <label for="a-image">Flyer image</label>
+        <input class="input" id="a-image" type="file" accept="image/png,image/jpeg,image/webp,image/gif">
+        <span class="hint">PNG, JPEG, WebP or GIF, up to 2MB. Optional — a notice can be text only.</span>
+        <div id="a-preview" style="margin-top:10px">${imageUrl
+    ? `<img src="${escape(imageUrl)}" alt="" style="max-width:100%;border-radius:var(--radius)">
+       <button class="btn btn-ghost btn-sm" type="button" id="a-clear-image">Remove image</button>` : ''}</div>
+      </div>
+
+      <div class="row wrap" style="gap:14px">
+        <div class="field grow">
+          <label for="a-cta-label">Button label</label>
+          <input class="input" id="a-cta-label" maxlength="40" value="${escape(existing?.ctaLabel || '')}" placeholder="Join now">
+        </div>
+        <div class="field grow">
+          <label for="a-cta-url">Button link</label>
+          <input class="input" id="a-cta-url" value="${escape(existing?.ctaUrl || '')}" placeholder="/register">
+          <span class="hint">Starts with / or https://</span>
+        </div>
+      </div>
+
+      <div class="row wrap" style="gap:14px">
+        <div class="field grow">
+          <label for="a-audience">Who sees it</label>
+          <select class="select" id="a-audience">
+            <option value="everyone">Everyone</option>
+            <option value="members">Signed-in members only</option>
+            <option value="visitors">Signed-out visitors only</option>
+          </select>
+        </div>
+        <div class="field grow">
+          <label for="a-status">Status</label>
+          <select class="select" id="a-status">
+            <option value="inactive">Inactive</option>
+            <option value="active">Active</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="row wrap" style="gap:14px">
+        <div class="field grow">
+          <label for="a-starts">Show from</label>
+          <input class="input" id="a-starts" type="datetime-local" value="${dateInputValue(existing?.startsAt)}">
+          <span class="hint">Leave empty to start immediately.</span>
+        </div>
+        <div class="field grow">
+          <label for="a-ends">Show until</label>
+          <input class="input" id="a-ends" type="datetime-local" value="${dateInputValue(existing?.endsAt)}">
+          <span class="hint">Leave empty to run indefinitely.</span>
+        </div>
+      </div>
+
+      <div class="row wrap" style="gap:14px">
+        <div class="field grow">
+          <label for="a-priority">Priority</label>
+          <input class="input" id="a-priority" type="number" min="0" max="100" value="${existing?.priority ?? 0}">
+          <span class="hint">Highest wins when several are active.</span>
+        </div>
+        <label class="checkbox" style="align-self:end;padding-bottom:16px">
+          <input type="checkbox" id="a-dismissible" ${existing?.dismissible === false ? '' : 'checked'}>
+          <span class="small">Visitors can dismiss it permanently</span>
+        </label>
+      </div>`,
+    size: 'modal-lg',
+    footer: `
+      <button class="btn btn-secondary" data-close>Cancel</button>
+      <button class="btn" data-save>${existing ? 'Save changes' : 'Create announcement'}</button>`,
+  });
+
+  const field = (selector) => dialog.root.querySelector(selector);
+
+  // A select's value cannot be set from markup alone here, because the option
+  // list is rendered before we know which one is current.
+  field('#a-audience').value = existing?.audience || 'everyone';
+  field('#a-status').value = existing?.status || 'inactive';
+
+  dialog.root.querySelector('[data-save]').addEventListener('click', async (event) => {
+    const payload = {
+      title: field('#a-title').value.trim(),
+      body: field('#a-body').value.trim(),
+      imageUrl,
+      ctaLabel: field('#a-cta-label').value.trim(),
+      ctaUrl: field('#a-cta-url').value.trim(),
+      audience: field('#a-audience').value,
+      status: field('#a-status').value,
+      startsAt: field('#a-starts').value || null,
+      endsAt: field('#a-ends').value || null,
+      priority: Number(field('#a-priority').value) || 0,
+      dismissible: field('#a-dismissible').checked,
+    };
+    if (!payload.title) { toastError('An announcement needs a title.'); return; }
+
+    const restore = buttonLoading(event.currentTarget);
+    try {
+      if (existing) await api.patch(`/admin/announcements/${existing._id}`, payload);
+      else await api.post('/admin/announcements', payload);
+      toastSuccess(existing ? 'Announcement saved' : 'Announcement created');
+      dialog.close();
+      onDone();
+    } catch (err) {
+      toastError(err.message);
+      restore();
+    }
+  });
+
+  const preview = field('#a-preview');
+  const paintPreview = () => {
+    preview.innerHTML = imageUrl
+      ? `<img src="${escape(imageUrl)}" alt="" style="max-width:100%;border-radius:var(--radius)">
+         <button class="btn btn-ghost btn-sm" type="button" id="a-clear-image">Remove image</button>`
+      : '';
+    preview.querySelector('#a-clear-image')?.addEventListener('click', () => { imageUrl = ''; paintPreview(); });
+  };
+  paintPreview();
+
+  field('#a-image').addEventListener('change', async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      imageUrl = await readFileAsDataUrl(file);
+      paintPreview();
+    } catch (err) {
+      toastError(err.message);
+      event.target.value = '';
+    }
+  });
+}
+
+/* -------------------------------- appearance ------------------------------- */
+
+/**
+ * Website appearance. Edits apply to this page immediately so the admin can see
+ * what they are choosing; nothing reaches visitors until Publish, and Reset puts
+ * the original design back.
+ */
+async function appearanceTab(root) {
+  root.innerHTML = `<div class="card">${skeletonLines(8)}</div>`;
+  let theme;
+  let options;
+  try {
+    ({ theme, options } = await api.get('/admin/theme'));
+  } catch (err) {
+    root.innerHTML = errorState(err.message);
+    return;
+  }
+
+  const draft = { ...theme };
+  const colour = (id, label, hint = '') => `
+    <div class="field">
+      <label for="${id}">${label}</label>
+      <div class="row" style="gap:8px;align-items:center">
+        <input type="color" id="${id}-picker" value="${draft[id] || '#5b21e6'}"
+          style="width:44px;height:38px;padding:2px;border:1px solid var(--border);border-radius:var(--radius-sm);background:none;cursor:pointer">
+        <input class="input grow" id="${id}" placeholder="Default" value="${escape(draft[id] || '')}">
+        <button class="btn btn-ghost btn-sm" type="button" data-clear="${id}">Clear</button>
+      </div>
+      ${hint ? `<span class="hint">${hint}</span>` : ''}
+    </div>`;
+
+  const fontSelect = (id, label) => `
+    <div class="field">
+      <label for="${id}">${label}</label>
+      <select class="select" id="${id}">
+        <option value="">Default (Plus Jakarta Sans)</option>
+        ${options.fonts.map((f) => `<option value="${escape(f)}">${escape(f)}</option>`).join('')}
+      </select>
+    </div>`;
+
+  const number = (id, label, hint, min, max, step = 1) => `
+    <div class="field">
+      <label for="${id}">${label}</label>
+      <input class="input" id="${id}" type="number" min="${min}" max="${max}" step="${step}"
+        value="${draft[id] || ''}" placeholder="Default">
+      <span class="hint">${hint}</span>
+    </div>`;
+
+  root.innerHTML = `
+    <div class="card card-body" style="margin-bottom:20px">
+      <div class="row-between wrap" style="gap:12px">
+        <div>
+          <h3>Website appearance</h3>
+          <p class="small muted" style="margin:0">
+            Changes preview on this page as you make them. Publish sends them to the whole site;
+            anything left blank keeps the original design.</p>
+        </div>
+        <div class="row wrap" style="gap:8px">
+          <button class="btn btn-ghost" id="theme-reset">Restore original design</button>
+          <button class="btn" id="theme-publish">Publish</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="dash-grid">
+      <div class="card">
+        <div class="card-head"><h3>Colours</h3></div>
+        <div class="card-body">
+          ${colour('primaryColor', 'Primary colour', 'Drives buttons, links, highlights and every brand tint.')}
+          ${colour('secondaryColor', 'Secondary colour')}
+          ${colour('backgroundColor', 'Page background')}
+          ${colour('surfaceColor', 'Card background')}
+          ${colour('textColor', 'Text colour')}
+          ${colour('mutedTextColor', 'Muted text colour')}
+          ${colour('borderColor', 'Border colour')}
+          ${colour('buttonColor', 'Button colour', 'Leave blank to follow the primary colour.')}
+          ${colour('buttonTextColor', 'Button text colour')}
+        </div>
+      </div>
+
+      <div class="dash-col">
+        <div class="card">
+          <div class="card-head"><h3>Type</h3></div>
+          <div class="card-body">
+            ${fontSelect('fontFamily', 'Body font')}
+            ${fontSelect('headingFontFamily', 'Heading font')}
+            ${number('baseFontSize', 'Base text size', '12–22px. Blank keeps the designed scale.', 12, 22)}
+            ${number('bodyLineHeight', 'Line height', '1.1–2.2', 1.1, 2.2, 0.05)}
+            ${number('headingWeight', 'Heading weight', '300–900', 300, 900, 100)}
+            ${number('headingLetterSpacing', 'Heading letter spacing', '-0.1 to 0.3 em', -0.1, 0.3, 0.01)}
+            <div class="field">
+              <label for="headingTransform">Heading style</label>
+              <select class="select" id="headingTransform">
+                <option value="">Default</option>
+                ${options.headingTransforms.map((t) => `<option value="${t}">${titleCase(t)}</option>`).join('')}
+              </select>
+            </div>
+            ${number('cornerRadius', 'Corner rounding', '0–28px', 0, 28)}
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3>Logo & favicon</h3></div>
+          <div class="card-body col">
+            <div class="field">
+              <label for="logo-file">Website logo</label>
+              <input class="input" id="logo-file" type="file" accept="image/png,image/jpeg,image/webp">
+              <div id="logo-preview" style="margin-top:8px"></div>
+            </div>
+            <div class="field">
+              <label for="favicon-file">Favicon</label>
+              <input class="input" id="favicon-file" type="file" accept="image/png,image/webp">
+              <span class="hint">A small square image — 64×64 or larger, up to 256KB.</span>
+              <div id="favicon-preview" style="margin-top:8px"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3>Header, footer & banner</h3></div>
+          <div class="card-body">
+            ${colour('headerBackground', 'Header background')}
+            ${colour('headerTextColor', 'Header text')}
+            ${colour('footerBackground', 'Footer background')}
+            ${colour('footerTextColor', 'Footer text')}
+            <label class="checkbox" style="margin:8px 0 14px">
+              <input type="checkbox" id="bannerEnabled" ${draft.bannerEnabled ? 'checked' : ''}>
+              <span class="small">Show a strip across the top of every page</span>
+            </label>
+            <div class="field">
+              <label for="bannerText">Banner text</label>
+              <input class="input" id="bannerText" maxlength="300" value="${escape(draft.bannerText || '')}">
+            </div>
+            <div class="field">
+              <label for="bannerUrl">Banner link</label>
+              <input class="input" id="bannerUrl" value="${escape(draft.bannerUrl || '')}" placeholder="/register">
+            </div>
+            ${colour('bannerBackground', 'Banner background')}
+            ${colour('bannerTextColor', 'Banner text colour')}
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+  /* ------------------------------ live preview ----------------------------- */
+
+  // Preview writes CSS variables straight onto this document. It is the same
+  // set of tokens the published stylesheet sets, so what the admin sees here is
+  // what visitors get — without anything having been saved yet.
+  const PREVIEW_VARS = {
+    primaryColor: '--purple-600',
+    backgroundColor: '--bg',
+    surfaceColor: '--surface',
+    textColor: '--ink-900',
+    mutedTextColor: '--ink-500',
+    borderColor: '--border',
+  };
+
+  const preview = () => {
+    const style = document.documentElement.style;
+    Object.entries(PREVIEW_VARS).forEach(([field, token]) => {
+      if (draft[field]) style.setProperty(token, draft[field]);
+      else style.removeProperty(token);
+    });
+    if (draft.cornerRadius) style.setProperty('--radius', `${draft.cornerRadius}px`);
+    else style.removeProperty('--radius');
+    if (draft.baseFontSize) document.body.style.fontSize = `${draft.baseFontSize}px`;
+    else document.body.style.removeProperty('font-size');
+  };
+
+  root.querySelectorAll('input[type="color"]').forEach((picker) => {
+    const field = picker.id.replace('-picker', '');
+    picker.addEventListener('input', () => {
+      draft[field] = picker.value;
+      root.querySelector(`#${field}`).value = picker.value;
+      preview();
+    });
+  });
+
+  root.querySelectorAll('[data-clear]').forEach((btn) => btn.addEventListener('click', () => {
+    const field = btn.dataset.clear;
+    draft[field] = '';
+    root.querySelector(`#${field}`).value = '';
+    preview();
+  }));
+
+  const textFields = [
+    'primaryColor', 'secondaryColor', 'backgroundColor', 'surfaceColor', 'textColor', 'mutedTextColor',
+    'borderColor', 'buttonColor', 'buttonTextColor', 'headerBackground', 'headerTextColor',
+    'footerBackground', 'footerTextColor', 'bannerBackground', 'bannerTextColor', 'bannerText', 'bannerUrl',
+  ];
+  textFields.forEach((field) => {
+    root.querySelector(`#${field}`)?.addEventListener('input', (event) => {
+      draft[field] = event.target.value.trim();
+      preview();
+    });
+  });
+
+  ['baseFontSize', 'bodyLineHeight', 'headingWeight', 'headingLetterSpacing', 'cornerRadius'].forEach((field) => {
+    root.querySelector(`#${field}`).addEventListener('input', (event) => {
+      draft[field] = Number(event.target.value) || 0;
+      preview();
+    });
+  });
+
+  ['fontFamily', 'headingFontFamily', 'headingTransform'].forEach((field) => {
+    const select = root.querySelector(`#${field}`);
+    select.value = draft[field] || '';
+    select.addEventListener('change', () => { draft[field] = select.value; });
+  });
+
+  root.querySelector('#bannerEnabled').addEventListener('change', (event) => {
+    draft.bannerEnabled = event.target.checked;
+  });
+
+  /* -------------------------------- uploads -------------------------------- */
+
+  const paintImage = (id, value, label) => {
+    root.querySelector(id).innerHTML = value
+      ? `<div class="row" style="gap:10px;align-items:center">
+           <img src="${escape(value)}" alt="" style="height:44px;border-radius:var(--radius-sm)">
+           <button class="btn btn-ghost btn-sm" type="button" data-drop="${label}">Remove</button>
+         </div>`
+      : '<span class="tiny muted">Using the built-in mark.</span>';
+    root.querySelector(id).querySelector('[data-drop]')?.addEventListener('click', () => {
+      draft[label] = '';
+      paintImage(id, '', label);
+    });
+  };
+  paintImage('#logo-preview', draft.logoUrl, 'logoUrl');
+  paintImage('#favicon-preview', draft.faviconUrl, 'faviconUrl');
+
+  const wireUpload = (inputId, previewId, field, maxBytes) => {
+    root.querySelector(inputId).addEventListener('change', async (event) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      try {
+        draft[field] = await readFileAsDataUrl(file, maxBytes);
+        paintImage(previewId, draft[field], field);
+      } catch (err) {
+        toastError(err.message);
+        event.target.value = '';
+      }
+    });
+  };
+  wireUpload('#logo-file', '#logo-preview', 'logoUrl', 1024 * 1024);
+  wireUpload('#favicon-file', '#favicon-preview', 'faviconUrl', 256 * 1024);
+
+  /* -------------------------------- publish -------------------------------- */
+
+  root.querySelector('#theme-publish').addEventListener('click', async (event) => {
+    const restore = buttonLoading(event.currentTarget);
+    try {
+      await api.put('/admin/theme', { theme: draft });
+      toastSuccess('Appearance published — the whole site now uses it');
+      // Reload the generated stylesheet so this console matches what was saved.
+      document.querySelectorAll('link[href^="/theme.css"]').forEach((link) => {
+        link.href = `/theme.css?v=${Date.now()}`;
+      });
+    } catch (err) {
+      toastError(err.message);
+    } finally {
+      restore();
+    }
+  });
+
+  root.querySelector('#theme-reset').addEventListener('click', async () => {
+    const confirmed = await confirmDialog({
+      title: 'Restore the original design?',
+      message: 'Every colour, font and image you set here is cleared. Nothing else about the platform changes.',
+      confirmLabel: 'Restore',
+      danger: true,
+    });
+    if (!confirmed) return;
+    try {
+      await api.post('/admin/theme/reset', {});
+      toastSuccess('Original design restored');
+      appearanceTab(root);
+    } catch (err) {
+      toastError(err.message);
+    }
+  });
+}

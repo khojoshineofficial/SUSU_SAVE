@@ -114,9 +114,131 @@ export async function mountMaintenanceBanner({ pollMs = 60000 } = {}) {
       const res = await fetch('/api/settings/public');
       const body = await res.json();
       paint(body.data);
+      applyBranding(body.data?.branding);
     } catch { /* offline or mid-deploy: leave the banner as it is */ }
   };
 
   await check();
+  mountAnnouncement();
   if (pollMs > 0) setInterval(check, pollMs);
+}
+
+/* -------------------------------- branding -------------------------------- */
+
+/**
+ * The parts of the super admin's appearance settings that CSS cannot do on its
+ * own: the favicon, the logo image, the promo strip, and the stylesheet for a
+ * chosen Google font. Colours and type scale arrive through /theme.css.
+ */
+function applyBranding(branding) {
+  if (!branding) return;
+
+  if (branding.faviconUrl) {
+    let icon = document.querySelector('link[rel~="icon"]');
+    if (!icon) {
+      icon = document.createElement('link');
+      icon.rel = 'icon';
+      document.head.appendChild(icon);
+    }
+    if (icon.getAttribute('href') !== branding.faviconUrl) icon.setAttribute('href', branding.faviconUrl);
+  }
+
+  if (branding.fontHref && !document.querySelector(`link[data-theme-font="${branding.fontHref}"]`)) {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = branding.fontHref;
+    link.dataset.themeFont = branding.fontHref;
+    document.head.appendChild(link);
+  }
+
+  if (branding.logoUrl) {
+    document.querySelectorAll('[data-brand-logo], .auth-logo .mark, .brand .mark').forEach((mark) => {
+      if (mark.querySelector('img')) return;
+      mark.innerHTML = `<img src="${branding.logoUrl}" alt="" style="width:100%;height:100%;object-fit:contain">`;
+      mark.style.background = 'transparent';
+    });
+  }
+
+  paintPromoBanner(branding.banner);
+}
+
+function paintPromoBanner(banner) {
+  const existing = document.querySelector('.promo-bar');
+  if (!banner?.text) { existing?.remove(); return; }
+  if (existing) { existing.querySelector('.promo-text').textContent = banner.text; return; }
+
+  const bar = document.createElement('div');
+  bar.className = 'promo-bar';
+  const text = `<span class="promo-text">${banner.text.replace(/[<>&]/g, '')}</span>`;
+  bar.innerHTML = banner.url
+    ? `<a href="${banner.url.replace(/["<>]/g, '')}">${text}</a>`
+    : text;
+  document.body.prepend(bar);
+}
+
+/* ------------------------------ announcements ------------------------------ */
+
+const escapeHtml = (text) => String(text ?? '').replace(/[&<>"']/g, (c) => (
+  { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+/**
+ * The flyer popup.
+ *
+ * Content comes from the database, never from markup, so publishing a notice is
+ * an admin action rather than a deploy. A dismissal is remembered against the
+ * announcement's `updatedAt`, so editing a live notice shows it again to people
+ * who had already closed the previous version.
+ */
+export async function mountAnnouncement() {
+  if (document.querySelector('.announce-overlay')) return;
+
+  let announcement;
+  try {
+    // The server decides whether we count as signed in — it can see the
+    // refresh cookie, which this page cannot.
+    const res = await fetch('/api/announcements/live', { credentials: 'same-origin' });
+    ({ announcement } = (await res.json()).data || {});
+  } catch { return; }
+  if (!announcement) return;
+
+  const seenKey = `susu.announcement.${announcement._id}.${new Date(announcement.updatedAt).getTime()}`;
+  if (announcement.dismissible && localStorage.getItem(seenKey)) return;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'announce-overlay';
+  overlay.innerHTML = `
+    <div class="announce" role="dialog" aria-modal="true" aria-labelledby="announce-title">
+      <button class="announce-close" type="button" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+          width="18" height="18" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+      ${announcement.imageUrl
+    ? `<img class="announce-flyer" src="${escapeHtml(announcement.imageUrl)}" alt="">`
+    : ''}
+      <div class="announce-body">
+        <h3 id="announce-title">${escapeHtml(announcement.title)}</h3>
+        ${announcement.body ? `<p>${escapeHtml(announcement.body)}</p>` : ''}
+        <div class="announce-actions">
+          ${announcement.ctaLabel && announcement.ctaUrl
+    ? `<a class="btn" href="${escapeHtml(announcement.ctaUrl)}">${escapeHtml(announcement.ctaLabel)}</a>`
+    : ''}
+          <button class="btn btn-ghost announce-dismiss" type="button">Close</button>
+        </div>
+      </div>
+    </div>`;
+
+  const close = () => {
+    if (announcement.dismissible) localStorage.setItem(seenKey, '1');
+    overlay.remove();
+    document.removeEventListener('keydown', onKey);
+  };
+  const onKey = (event) => { if (event.key === 'Escape') close(); };
+
+  overlay.querySelector('.announce-close').addEventListener('click', close);
+  overlay.querySelector('.announce-dismiss').addEventListener('click', close);
+  overlay.addEventListener('click', (event) => { if (event.target === overlay) close(); });
+  document.addEventListener('keydown', onKey);
+
+  document.body.appendChild(overlay);
+  overlay.querySelector('.announce-close').focus();
 }

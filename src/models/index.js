@@ -16,6 +16,8 @@ module.exports = {
   Notification: require('./notification.model'),
   AuditLog: require('./auditLog.model'),
   Invitation: require('./invitation.model'),
+  Announcement: require('./announcement.model'),
+  PaymentCode: require('./paymentCode.model'),
   Plan: require('./plan.model'),
   Subscription: require('./subscription.model'),
   SupportTicket: require('./supportTicket.model'),

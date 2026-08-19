@@ -8,7 +8,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  startDatabase, stopDatabase, resetDatabase, makeUser, dbTest,
+  startDatabase, stopDatabase, resetDatabase, makeUser, makeActiveGroup, dbTest,
 } = require('./helpers');
 
 let app;
@@ -26,8 +26,16 @@ async function request(method, path, { body, token, headers = {} } = {}) {
     },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
-  const payload = await response.json().catch(() => ({}));
-  return { status: response.status, body: payload };
+  // Read the body once as text, then parse — some routes (theme.css) are not JSON.
+  const text = await response.text();
+  let payload = {};
+  try { payload = JSON.parse(text); } catch { /* not JSON */ }
+  return {
+    status: response.status,
+    body: payload,
+    text,
+    headers: Object.fromEntries(response.headers.entries()),
+  };
 }
 
 test.before(async () => {
@@ -579,4 +587,235 @@ dbTest('one collector cannot manage another collector link', async () => {
   // /current is resolved from the caller's own tenant, so B's token yields B's link.
   const res = await request('GET', '/api/organizations/current/join-link', { token: await tokenFor(b.admin) });
   assert.equal(res.body.data.joinCode, b.link.joinCode);
+});
+
+/* ------------------------------ announcements -------------------------------- */
+
+dbTest('only the super admin may publish an announcement', async () => {
+  const staff = await makeUser({ role: 'admin' });
+  const owner = await makeUser({ role: 'super_admin' });
+
+  const denied = await request('POST', '/api/admin/announcements', {
+    token: await tokenFor(staff), body: { title: 'Nope' },
+  });
+  assert.equal(denied.status, 403);
+
+  const res = await request('POST', '/api/admin/announcements', {
+    token: await tokenFor(owner),
+    body: { title: 'December bonus susu', body: 'Save more this month.', status: 'active' },
+  });
+  assert.equal(res.status, 201);
+  assert.equal(res.body.data.announcement.status, 'active');
+});
+
+dbTest('only active, in-window announcements reach the public endpoint', async () => {
+  const owner = await makeUser({ role: 'super_admin' });
+  const token = await tokenFor(owner);
+  const post = (body) => request('POST', '/api/admin/announcements', { token, body });
+
+  await post({ title: 'Draft notice', status: 'inactive' });
+  await post({
+    title: 'Next month',
+    status: 'active',
+    startsAt: new Date(Date.now() + 7 * 86400000).toISOString(),
+  });
+  await post({
+    title: 'Old news',
+    status: 'active',
+    endsAt: new Date(Date.now() - 86400000).toISOString(),
+  });
+
+  const quiet = await request('GET', '/api/announcements/live');
+  assert.equal(quiet.body.data.announcement, null, 'nothing scheduled for now is showing');
+
+  await post({ title: 'Showing now', status: 'active', priority: 5 });
+  await post({ title: 'Also showing', status: 'active', priority: 1 });
+
+  const live = await request('GET', '/api/announcements/live');
+  assert.equal(live.body.data.announcement.title, 'Showing now', 'highest priority wins');
+});
+
+dbTest('an announcement refuses a dangerous button link and an oversized flyer', async () => {
+  const token = await tokenFor(await makeUser({ role: 'super_admin' }));
+
+  const script = await request('POST', '/api/admin/announcements', {
+    token, body: { title: 'Bad link', ctaUrl: 'javascript:alert(1)' },
+  });
+  assert.equal(script.status, 400);
+  assert.equal(script.body.errorCode, 'INVALID_CTA_URL');
+
+  const svg = await request('POST', '/api/admin/announcements', {
+    token, body: { title: 'Bad flyer', imageUrl: 'data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=' },
+  });
+  assert.equal(svg.status, 400);
+  assert.equal(svg.body.errorCode, 'UNSUPPORTED_IMAGE_TYPE');
+
+  // 3MB of base64 is well past the 2MB ceiling for a flyer.
+  const huge = await request('POST', '/api/admin/announcements', {
+    token, body: { title: 'Huge', imageUrl: `data:image/png;base64,${'A'.repeat(4 * 1024 * 1024)}` },
+  });
+  assert.equal(huge.status, 400);
+  assert.equal(huge.body.errorCode, 'IMAGE_TOO_LARGE');
+});
+
+/* -------------------------------- appearance --------------------------------- */
+
+dbTest('the theme is published as CSS and rejects values that could break out', async () => {
+  const token = await tokenFor(await makeUser({ role: 'super_admin' }));
+
+  const bad = await request('PUT', '/api/admin/theme', {
+    token, body: { theme: { primaryColor: 'red; } body { display:none } .x {' } },
+  });
+  assert.equal(bad.status, 400);
+  assert.equal(bad.body.errorCode, 'INVALID_COLOR');
+
+  const badFont = await request('PUT', '/api/admin/theme', {
+    token, body: { theme: { fontFamily: 'Comic Sans MS' } },
+  });
+  assert.equal(badFont.status, 400);
+  assert.equal(badFont.body.errorCode, 'INVALID_FONT');
+
+  const saved = await request('PUT', '/api/admin/theme', {
+    token, body: { theme: { primaryColor: '#0f766e', fontFamily: 'Inter', cornerRadius: 4 } },
+  });
+  assert.equal(saved.status, 200);
+
+  const css = await request('GET', '/theme.css');
+  assert.equal(css.status, 200);
+  assert.match(css.headers['content-type'], /text\/css/);
+  assert.match(css.text, /--purple-600: #0f766e;/, 'the brand token is overridden');
+  assert.match(css.text, /--purple-100: #[0-9a-f]{6};/, 'the whole ramp is regenerated');
+  assert.match(css.text, /'Inter'/);
+
+  // Resetting restores the untouched design.
+  await request('POST', '/api/admin/theme/reset', { token, body: {} });
+  const plain = await request('GET', '/theme.css');
+  assert.doesNotMatch(plain.text, /--purple-600/);
+});
+
+dbTest('an ordinary user cannot change the site appearance', async () => {
+  const token = await tokenFor(await makeUser());
+  const res = await request('PUT', '/api/admin/theme', { token, body: { theme: { primaryColor: '#000000' } } });
+  assert.equal(res.status, 403);
+});
+
+/* --------------------------------- QR codes ---------------------------------- */
+
+dbTest('an organizer gets QR codes and a member scanning theirs can pay', async () => {
+  const organizer = await makeUser();
+  const member = await makeUser();
+  const { group } = await makeActiveGroup({ organizer, members: [member] });
+
+  const organizerToken = await tokenFor(organizer);
+  const codes = await request('GET', `/api/groups/${group._id}/qr`, { token: organizerToken });
+  assert.equal(codes.status, 200);
+  assert.ok(codes.body.data.groupCode.code.length >= 20, 'the code carries real entropy');
+  assert.ok(codes.body.data.groupCode.url.endsWith(codes.body.data.groupCode.code));
+  assert.equal(codes.body.data.memberCodes.length, 2, 'one code per active member');
+
+  // The code encodes nothing about the member it belongs to.
+  const mine = codes.body.data.memberCodes.find((c) => String(c.member._id) === String(member._id));
+  assert.doesNotMatch(mine.code, /[0-9a-f]{24}/i, 'no object id is embedded in the code');
+
+  const memberToken = await tokenFor(member);
+  const scan = await request('GET', `/api/pay/${mine.code}`, { token: memberToken });
+  assert.equal(scan.status, 200);
+  assert.equal(scan.body.data.belongsToViewer, true);
+  assert.equal(String(scan.body.data.group._id), String(group._id));
+  assert.ok(scan.body.data.due.outstandingMinor > 0, 'the scan resolves what they owe');
+
+  // Paying through the resolved cycle updates the contribution record.
+  const paid = await request('POST', `/api/groups/${group._id}/contributions`, {
+    token: memberToken,
+    body: { cycle: scan.body.data.due.cycle },
+  });
+  assert.equal(paid.status, 201);
+  assert.equal(paid.body.data.contribution.status, 'paid');
+
+  const after = await request('GET', `/api/pay/${mine.code}`, { token: memberToken });
+  assert.equal(after.body.data.due, null, 'nothing is outstanding once it is paid');
+});
+
+dbTest('a member QR code cannot be used to pay for someone else', async () => {
+  const organizer = await makeUser();
+  const alice = await makeUser();
+  const bob = await makeUser();
+  const { group } = await makeActiveGroup({ organizer, members: [alice, bob] });
+
+  const codes = await request('GET', `/api/groups/${group._id}/qr`, { token: await tokenFor(organizer) });
+  const alicesCode = codes.body.data.memberCodes.find((c) => String(c.member._id) === String(alice._id));
+
+  // Bob scans Alice's card: he is told it is not his, and is shown her own
+  // figures nowhere at all.
+  const scan = await request('GET', `/api/pay/${alicesCode.code}`, { token: await tokenFor(bob) });
+  assert.equal(scan.status, 200);
+  assert.equal(scan.body.data.belongsToViewer, false);
+  assert.equal(scan.body.data.due, null, "another member's dues are never disclosed");
+
+  // And the group code resolves to the scanner's own dues, never the owner's.
+  const groupScan = await request('GET', `/api/pay/${codes.body.data.groupCode.code}`, {
+    token: await tokenFor(bob),
+  });
+  assert.equal(groupScan.body.data.belongsToViewer, true);
+  assert.equal(String(groupScan.body.data.due.cycle), '1');
+});
+
+dbTest('a revoked QR code stops resolving, and only the organizer may manage codes', async () => {
+  const organizer = await makeUser();
+  const member = await makeUser();
+  const { group } = await makeActiveGroup({ organizer, members: [member] });
+  const organizerToken = await tokenFor(organizer);
+  const memberToken = await tokenFor(member);
+
+  const codes = await request('GET', `/api/groups/${group._id}/qr`, { token: organizerToken });
+  const groupCode = codes.body.data.groupCode;
+
+  // A member cannot list, rotate or revoke.
+  assert.equal((await request('GET', `/api/groups/${group._id}/qr`, { token: memberToken })).status, 403);
+  assert.equal((await request('POST', `/api/groups/${group._id}/qr/${groupCode._id}/revoke`, {
+    token: memberToken, body: {},
+  })).status, 403);
+
+  const revoked = await request('POST', `/api/groups/${group._id}/qr/${groupCode._id}/revoke`, {
+    token: organizerToken, body: {},
+  });
+  assert.equal(revoked.status, 200);
+
+  const dead = await request('GET', `/api/pay/${groupCode.code}`, { token: memberToken });
+  assert.equal(dead.status, 404);
+  assert.equal(dead.body.errorCode, 'INVALID_PAYMENT_CODE');
+});
+
+dbTest('the organizer payment view reports paid and unpaid from the contribution rows', async () => {
+  const organizer = await makeUser();
+  const paidMember = await makeUser();
+  const unpaidMember = await makeUser();
+  const { group } = await makeActiveGroup({ organizer, members: [paidMember, unpaidMember] });
+
+  await request('POST', `/api/groups/${group._id}/contributions`, {
+    token: await tokenFor(paidMember), body: { cycle: 1 },
+  });
+
+  const res = await request('GET', `/api/groups/${group._id}/payments`, { token: await tokenFor(organizer) });
+  assert.equal(res.status, 200);
+
+  const { summary, rows } = res.body.data;
+  assert.equal(summary.members, 3);
+  assert.equal(summary.paid, 1);
+  assert.equal(summary.unpaid, 2);
+  assert.ok(summary.collectedThisCycleMinor > 0);
+
+  const row = rows.find((r) => String(r.userId) === String(paidMember._id));
+  assert.equal(row.status, 'paid');
+  assert.equal(row.outstandingMinor, 0);
+  assert.ok(row.receipts.length, 'the reference of the settling transaction is reported');
+  assert.match(row.receipts[0].transactionId, /^SUSU-/);
+
+  const notPaid = rows.find((r) => String(r.userId) === String(unpaidMember._id));
+  assert.equal(notPaid.status, 'pending');
+  assert.ok(notPaid.outstandingMinor > 0);
+
+  // A member may not read the whole group's payment position.
+  const denied = await request('GET', `/api/groups/${group._id}/payments`, { token: await tokenFor(paidMember) });
+  assert.equal(denied.status, 403);
 });
