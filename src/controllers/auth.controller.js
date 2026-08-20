@@ -98,6 +98,7 @@ const register = asyncHandler(async (req, res) => {
         amountMinor,
         method: 'mobile_money',
         payerIdentifier: phone,
+        payerEmail: user.email,
       });
     }
   }

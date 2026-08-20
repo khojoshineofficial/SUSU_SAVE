@@ -273,9 +273,9 @@ Super Admin console.
 | `APP_URL` | | Public URL, used in emails and checkout links |
 | `JWT_ACCESS_TTL` / `JWT_REFRESH_TTL` | | Token lifetimes (default `30m` / `30d`) |
 | `CURRENCY` / `CURRENCY_SYMBOL` | | Default `GHS` / `GH₵` |
-| `PAYMENT_PROVIDER` | | Registered provider name (default `mock`) |
+| `PAYMENT_PROVIDER` | | `mock` (default) or `paystack` |
 | `PAYMENT_PROVIDER_KEY` / `_SECRET` | | Provider credentials |
-| `PAYMENT_WEBHOOK_SECRET` | ✅ (prod) | Secret used to verify webhook signatures |
+| `PAYMENT_WEBHOOK_SECRET` | | Webhook signing secret for the mock provider. Paystack signs with `PAYMENT_PROVIDER_SECRET` instead |
 | `EMAIL_DRIVER` | | `console` (default) or `smtp` |
 | `EMAIL_*` | | SMTP settings when using a real mail driver |
 | `ADMIN_EMAIL` / `SUPER_ADMIN_EMAIL` | | Email addresses for the two staff accounts |
@@ -409,6 +409,31 @@ Authenticate with `Authorization: Bearer <accessToken>`. The refresh token is an
 
 ## Payment integration
 
+### Paystack
+
+Paystack is built in. To go live:
+
+| Variable | Value |
+|---|---|
+| `PAYMENT_PROVIDER` | `paystack` |
+| `PAYMENT_PROVIDER_SECRET` | your **secret** key — starts with `sk_` |
+| `PAYMENT_PROVIDER_KEY` | your public key (`pk_`), optional |
+| `APP_URL` | your real URL — checkout redirects back to it |
+
+Then in the Paystack dashboard, **Settings → API Keys & Webhooks**, set the webhook URL to
+`https://<your-app>/api/payments/webhook/paystack`.
+
+Paystack signs webhooks with the same secret key using HMAC-SHA512, so there is no separate
+webhook secret to configure — `PAYMENT_WEBHOOK_SECRET` applies to the mock provider only.
+Amounts are sent in pesewas, which is what the ledger already stores, so nothing is converted
+on the way out.
+
+The boot log states plainly whether payments can work: a missing key, a public key in the secret
+slot, an unknown provider name, or test mode are all reported at startup rather than at the
+moment a member tries to pay.
+
+### Adding another provider
+
 `PaymentService` is the only seam between SUSU SAVE and a money-movement provider. To add MTN
 MoMo, Telecel Cash, a card processor or a bank rail:
 
@@ -464,7 +489,7 @@ more than one web instance — otherwise every instance runs the same jobs).
 npm test
 ```
 
-Seven suites cover the parts where a bug costs someone money:
+Eight suites cover the parts where a bug costs someone money:
 
 - **money** — minor-unit conversion, rounding, no floating-point drift across 1,000 fee calculations
 - **ledger** — fee handling, insufficient-balance rejection, idempotent replays, concurrent
@@ -479,6 +504,8 @@ Seven suites cover the parts where a bug costs someone money:
 - **theme** — colour, font and number validation, the generated stylesheet, and image uploads
   (runs without a database)
 - **qr** — QR image generation (runs without a database)
+- **paystack** — webhook signature verification, amount and currency checks on what actually
+  cleared, and the configuration check (runs without a database)
 
 The pure-logic suite runs anywhere. The database-backed suites need MongoDB: they use
 `mongodb-memory-server` (downloaded on first run) or `MONGODB_TEST_URI` if you set it. In an

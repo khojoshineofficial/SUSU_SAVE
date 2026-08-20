@@ -62,7 +62,11 @@ document.getElementById('form').addEventListener('submit', async (event) => {
 
     setToken(data.accessToken);
 
-    if (data.payment) {
+    if (data.payment?.checkoutUrl) {
+      // A hosted gateway: the fee is only paid if the customer goes to checkout.
+      showSuccess(`Account created. Taking you to pay the ${money(data.payment.amountMinor)} registration fee…`);
+      setTimeout(() => { window.location.href = data.payment.checkoutUrl; }, 900);
+    } else if (data.payment) {
       showSuccess(`Account created. Your registration fee of ${money(data.payment.amountMinor)} is pending — approve it on your phone.`);
       setTimeout(() => { window.location.href = '/wallet'; }, 1800);
     } else {

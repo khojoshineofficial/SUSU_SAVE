@@ -3,15 +3,53 @@
 import { api } from '../core/api.js';
 import { money, date, dateTime, relative, escape, statusBadge, titleCase } from '../core/format.js';
 import {
-  icon, emptyState, errorState, skeletonLines, skeletonCards, toastSuccess,
+  icon, emptyState, errorState, skeletonLines, skeletonCards, toastSuccess, toastError,
   modal, buttonLoading, avatar,
 } from '../core/ui.js';
 import { loadProfile } from '../core/store.js';
 
 /* ---------------------------------- wallet --------------------------------- */
 
+/**
+ * Handles the return leg of a hosted checkout.
+ *
+ * The provider redirects back with our own reference on the query string. That
+ * redirect proves nothing on its own — it is a URL the customer could type — so
+ * this asks the server to verify with the provider, which is the same
+ * idempotent path the webhook uses. The webhook usually gets there first; this
+ * simply means the customer does not have to wait for it.
+ */
+async function settleReturnFromCheckout() {
+  const params = new URLSearchParams(window.location.search);
+  const reference = params.get('reference') || params.get('trxref');
+  if (!reference) return;
+
+  // Clear it immediately so a refresh does not re-run this.
+  params.delete('reference');
+  params.delete('trxref');
+  const query = params.toString();
+  window.history.replaceState({}, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
+
+  try {
+    const result = await api.post(`/wallet/payments/${encodeURIComponent(reference)}/confirm`);
+    if (result.applied) {
+      toastSuccess('Payment confirmed — your wallet has been credited');
+      await loadProfile().catch(() => {});
+    } else {
+      toastError('That payment has not been confirmed yet. It will appear as soon as your provider settles it.');
+    }
+  } catch (err) {
+    toastError(err.message);
+  }
+}
+
 export async function renderWallet(root) {
   root.innerHTML = `<div class="page-head"><div><h1>Wallet</h1><p>Your money on SUSU SAVE.</p></div></div>${skeletonCards(4)}`;
+
+  // Coming back from a hosted checkout (Paystack sends the customer to
+  // /wallet?reference=…). Verify before painting, so the balance below is the
+  // one the payment produced rather than the one from before it.
+  await settleReturnFromCheckout();
 
   let wallet;
   let pendingMinor = 0;
@@ -134,6 +172,12 @@ function openTopUpModal(onDone) {
         accountNumber: dialog.root.querySelector('#account').value,
       });
       dialog.close();
+      // A hosted gateway (Paystack, a card processor) returns a checkout URL —
+      // the payment cannot complete unless the customer actually goes there.
+      if (payment.checkoutUrl) {
+        window.location.href = payment.checkoutUrl;
+        return;
+      }
       openPaymentPendingModal(payment, onDone);
     } catch (err) {
       dialog.root.querySelector('#topup-error').textContent = err.message;

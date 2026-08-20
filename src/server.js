@@ -26,6 +26,13 @@ async function start() {
     }
   }
 
+  // Say plainly, at boot, whether payments can actually work. A gateway that is
+  // misconfigured otherwise only reveals itself to the person trying to pay.
+  const paymentStatus = require('./services/payment').describeConfiguration();
+  if (!paymentStatus.ok) logger.error(`PAYMENTS: ${paymentStatus.message}`);
+  else if (paymentStatus.warn) logger.warn(`PAYMENTS: ${paymentStatus.message}`);
+  else logger.info(`PAYMENTS: ${paymentStatus.message}`);
+
   const app = createApp();
   const server = app.listen(env.port, () => {
     logger.info(`SUSU SAVE listening on port ${env.port} (${env.nodeEnv})`);

@@ -29,6 +29,8 @@ const topUp = asyncHandler(async (req, res) => {
     amountMinor,
     method: req.body.method || 'mobile_money',
     payerIdentifier: req.body.accountNumber || req.user.phone,
+    // Paystack and most card rails require an email on every transaction.
+    payerEmail: req.user.email,
     metadata: { provider: req.body.provider || 'mtn' },
   });
 

@@ -25,9 +25,21 @@ const webhook = asyncHandler(async (req, res) => {
     throw ApiError.unauthorized('Invalid webhook signature', 'INVALID_SIGNATURE');
   }
 
-  const { reference, providerReference, event } = req.body || {};
+  // Providers disagree about where the reference lives. Paystack sends
+  // `{ event, data: { reference } }`; the mock provider sends it at the top
+  // level. Look in both rather than making the caller normalise it.
+  const body = req.body || {};
+  const event = body.event || null;
+  const reference = body.reference || body.data?.reference || null;
+  const providerReference = body.providerReference
+    || body.data?.reference
+    || body.data?.transfer_code
+    || null;
+
   const payment = await Payment.findOne(
-    reference ? { reference } : { providerReference },
+    reference
+      ? { $or: [{ reference }, { providerReference: reference }] }
+      : { providerReference },
   );
   if (!payment) {
     logger.warn(`Webhook for unknown payment: ${reference || providerReference}`);
